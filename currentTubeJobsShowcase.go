@@ -12,17 +12,17 @@ import (
 // currentTubeJobsShowcase return a section include three stats of job, call
 // currentTubeJobsShowcaseSections function and get that return value based on
 // the given server and tube config.
-func currentTubeJobsShowcase(server string, tube string) string {
+func currentTubeJobsShowcase(conf SelfConf, server string, tube string) string {
 	var buf strings.Builder
 	buf.WriteString(`<section class="jobsShowcase">`)
-	buf.WriteString(currentTubeJobsShowcaseSections(server, tube))
+	buf.WriteString(currentTubeJobsShowcaseSections(conf, server, tube))
 	buf.WriteString(`</section>`)
 	return buf.String()
 }
 
 // currentTubeJobsShowcaseSections constructs a tube job in ready, delayed and
 // buried stats table based on the given server and tube config.
-func currentTubeJobsShowcaseSections(server string, tube string) string {
+func currentTubeJobsShowcaseSections(conf SelfConf, server string, tube string) string {
 	stats := []string{"ready", "delayed", "buried"}
 	var err error
 	var buf, s, j, b, m, r strings.Builder
@@ -76,7 +76,7 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 		}
 		if jobBody != nil {
 			b.WriteString(`<div class="pull-right"><div style="margin-bottom: 3px;"><a class="btn btn-sm btn-info addSample" data-jobid="`)
-			b.WriteString(strconv.Itoa(int(jobID)))
+			b.WriteString(strconv.FormatUint(jobID, 10))
 			b.WriteString(`" href="?server=`)
 			b.WriteString(server)
 			b.WriteString(`&tube=`)
@@ -112,11 +112,11 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 			b.WriteString(`&state=`)
 			b.WriteString(stat)
 			b.WriteString(`&action=deleteJob&jobid=`)
-			b.WriteString(strconv.Itoa(int(jobID)))
+			b.WriteString(strconv.FormatUint(jobID, 10))
 			b.WriteString(`"><i class="glyphicon glyphicon-remove glyphicon-white"></i> Delete</a></div></div>`)
 		}
 		if jobBody != nil {
-			j.WriteString(preformat(jobBody))
+			j.WriteString(preformat(conf, jobBody))
 		}
 		if jobBody != nil {
 			r.WriteString(`<hr><div class="pull-left"><h3>Next job in "`)

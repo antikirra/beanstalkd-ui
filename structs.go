@@ -33,11 +33,12 @@ const (
 var (
 	pubConf    PubConfig
 	sampleJobs SampleJobs
-	selfConf   SelfConf
 	configFile = "aurora.toml"
 
 	sampleJobsMu sync.RWMutex
-	selfConfMu   sync.RWMutex
+
+	statsConfig   StatsConfig
+	statsConfigMu sync.RWMutex
 
 	stderr io.Writer = os.Stderr
 	stdout io.Writer = os.Stdout
@@ -178,8 +179,9 @@ type StatisticsData struct {
 	Server map[string]map[string]map[string]*list.List
 }
 
-// SelfConf holds per-request user preferences loaded from cookies and
-// statistics parameters stored in memory.
+// SelfConf holds per-request user preferences loaded from cookies.
+// This struct is created per-request by readCookies() and passed through
+// the call chain — it is never stored as a global.
 type SelfConf struct {
 	Filter      []string
 	Servers     []string
@@ -190,13 +192,18 @@ type SelfConf struct {
 	TubePauseSeconds     int
 	AutoRefreshTimeoutMs int
 	SearchResultLimit    int
-	StatisticsCollection int
-	StatisticsFrequency  int
 
 	DisableJSONDecode       bool
 	DisableUnserialization  bool
 	DisableJobDataHighlight bool
 	EnableBase64Decode      bool
+}
+
+// StatsConfig holds statistics collection parameters, protected by statsConfigMu.
+// These are set by the statistics preference form and read by the collector goroutine.
+type StatsConfig struct {
+	Collection int
+	Frequency  int
 }
 
 // SearchResult holds a single job found by tube search.

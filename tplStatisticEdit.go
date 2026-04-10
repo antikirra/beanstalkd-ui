@@ -9,14 +9,17 @@ import (
 )
 
 // tplStatisticEdit provide method to render the statistics preference page.
-func tplStatisticEdit(alert string) string {
+func tplStatisticEdit(conf SelfConf, alert string) string {
 	var err error
 	var buf, savedTo, ST, tubeList strings.Builder
-	frequency := selfConf.StatisticsFrequency
+	statsConfigMu.RLock()
+	frequency := statsConfig.Frequency
+	collection := statsConfig.Collection
+	statsConfigMu.RUnlock()
 	if frequency < 1 {
 		frequency = 300
 	}
-	for _, server := range selfConf.Servers {
+	for _, server := range conf.Servers {
 		var bstkConn *beanstalk.Conn
 		tubeList.Reset()
 		if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
@@ -27,6 +30,7 @@ func tplStatisticEdit(alert string) string {
 		bstkConn.Close()
 		for _, v := range tubes {
 			var checked string
+			statisticsData.RLock()
 			s, ok := statisticsData.Server[server]
 			if ok {
 				_, ok := s[v]
@@ -34,6 +38,7 @@ func tplStatisticEdit(alert string) string {
 					checked = `checked="checked"`
 				}
 			}
+			statisticsData.RUnlock()
 			tubeList.WriteString(`<div class="control-group"><div class="controls"><label class="checkbox-inline"><input type="checkbox" name="tubes[`)
 			tubeList.WriteString(server)
 			tubeList.WriteString(`:`)
@@ -54,7 +59,7 @@ func tplStatisticEdit(alert string) string {
 	buf.WriteString(`<form name="statisticsPreference" action="./statistics?action=save" method="POST"><div class="clearfix form-group"><div class="pull-left"><h4 class="text-info">Statistics preference</h4></div></div><div class="form-group"><fieldset>`)
 	buf.WriteString(alert)
 	buf.WriteString(`<div class="control-group"><label class="control-label"><b>Collection record number of each server or tube (Default: <i>0</i>, reserved for not statistics, recommended value: <i>300</i>) *</b></label><div class="controls form-group"><input class="form-control input-sm focused" name="collection" type="number" min="0" style="width: 15em;" required="" value="`)
-	buf.WriteString(strconv.Itoa(selfConf.StatisticsCollection))
+	buf.WriteString(strconv.Itoa(collection))
 	buf.WriteString(`" autocomplete="off"></div></div><div class="control-group"><label class="control-label"><b>Acquisition frequency seconds of each server or tube (Default: <i>300</i>, minimum: <i>1</i>) *</b></label><div class="controls form-group"><input class="form-control input-sm" name="frequency" type="number" min="1" style="width: 15em;" required="" value="`)
 	buf.WriteString(strconv.Itoa(frequency))
 	buf.WriteString(`" autocomplete="off"></div></div></fieldset><div class="clearfix"><label class="control-label"><b>Available on tubes *</b></label><br/>`)

@@ -3,9 +3,9 @@ package main
 import "strings"
 
 // tplMain render server list.
-func tplMain(serverList string, currentServer string) string {
+func tplMain(conf SelfConf, serverList string, currentServer string) string {
 	var isDisabledJobDataHighlight string
-	if !selfConf.DisableJobDataHighlight {
+	if !conf.DisableJobDataHighlight {
 		isDisabledJobDataHighlight = `<script src="./highlight/highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script>`
 	}
 	buf := strings.Builder{}
@@ -21,8 +21,8 @@ func tplMain(serverList string, currentServer string) string {
 	buf.WriteString(`</div>`)
 	buf.WriteString(checkUpdate())
 	buf.WriteString(`<div id="idServersCopy" style="display:none"></div><div id="servers-add" class="modal fade" tabindex="-1" role="dialog"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button><h4 class="modal-title" id="servers-add-labal">Add Server</h4></div><div class="modal-body"><form class="form-horizontal"><div class="form-group"><label class="control-label col-sm-2" for="host">Host</label><div class="col-sm-10"><input type="text" id="host" value="localhost" class="form-control"></div></div><div class="form-group"><label class="control-label col-sm-2" for="port">Port</label><div class="col-sm-10"><input type="number" id="port" value="11300" class="form-control"></div></div></form></div><div class="modal-footer"><button class="btn btn-info">Add server</button><button class="btn" data-dismiss="modal" aria-hidden="true">Cancel</button></div></div></div></div>`)
-	buf.WriteString(tplServerFilter())
-	buf.WriteString(dropEditSettings())
+	buf.WriteString(tplServerFilter(conf))
+	buf.WriteString(dropEditSettings(conf))
 	buf.WriteString(`</div><script>var url = "./index?server="; var contentType = "";</script><script src='./assets/vendor/jquery/jquery.js'></script><script src="./js/jquery.color.js"></script><script src="./js/jquery.cookie.js"></script><script src="./js/jquery.regexp.js"></script><script src="./assets/vendor/bootstrap/js/bootstrap.min.js"></script>`)
 	buf.WriteString(isDisabledJobDataHighlight)
 	buf.WriteString(`<script src="./js/customer.js"></script></body></html>`)

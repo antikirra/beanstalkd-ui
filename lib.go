@@ -119,7 +119,7 @@ func kickJob(server, tube, id string) {
 
 // pause pauses or unpauses a tube based on the count parameter.
 // count="-1" pauses for the configured duration, count="0" unpauses.
-func pause(server, tube, count string) {
+func pause(conf SelfConf, server, tube, count string) {
 	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
@@ -129,8 +129,8 @@ func pause(server, tube, count string) {
 	t := newTube(conn, tube)
 	switch count {
 	case "-1":
-		dur := time.Duration(selfConf.TubePauseSeconds) * time.Second
-		if selfConf.TubePauseSeconds == -1 {
+		dur := time.Duration(conf.TubePauseSeconds) * time.Second
+		if conf.TubePauseSeconds == -1 {
 			dur = DefaultTubePauseSeconds * time.Second
 		}
 		_ = t.Pause(dur)
@@ -222,8 +222,8 @@ func clearTubes(server string, data url.Values) {
 }
 
 // searchTube searches for jobs containing searchStr across ready, delayed, and buried states.
-func searchTube(server, tube, limit, searchStr string) string {
-	table := currentTubeJobsSummaryTable(server, tube)
+func searchTube(conf SelfConf, server, tube, limit, searchStr string) string {
+	table := currentTubeJobsSummaryTable(conf, server, tube)
 	if table == "" {
 		return fmt.Sprintf(`Tube %q not found or it is empty <br><br><a href="./server?server=%s"> &lt;&lt; back </a>`, tube, server)
 	}

@@ -17,17 +17,12 @@ import (
 
 // addSample provide a function to add sample job by parse form with POST
 // method.
-func addSample(server string, data url.Values, w http.ResponseWriter) {
+func addSample(conf SelfConf, server string, data url.Values, w http.ResponseWriter) {
 	var err error
 	var key = randToken()
 	var sampleName, body string
 	var sampleTTR int
 	var tubes []string
-
-	err = readConf()
-	if err != nil {
-		return
-	}
 
 	sampleName, sampleTTR, body, err = sampleValidate(server, data, w)
 	if err != nil {
@@ -232,18 +227,21 @@ func loadSample(server, tube, key string) {
 }
 
 // newSample provide method to add a sample job.
-func newSample(server string, f url.Values, w http.ResponseWriter, r *http.Request) {
+func newSample(conf SelfConf, server string, f url.Values, w http.ResponseWriter, r *http.Request) {
+	upsertSample(conf, server, "", f, w, r)
+}
+
+// upsertSample creates or updates a sample job. If existingKey is non-empty, it reuses the key.
+func upsertSample(conf SelfConf, server, existingKey string, f url.Values, w http.ResponseWriter, r *http.Request) {
 	var err error
-	var key = randToken()
+	key := existingKey
+	if key == "" {
+		key = randToken()
+	}
 	var name, body, ttr string
 	var sampleTTR int
 	var tubes []string
 	alert := `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Required fields are not set</span></div>`
-	err = readConf()
-	if err != nil {
-		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Read config error</span></div>`), server))
-		return
-	}
 	for k, v := range f {
 		switch k {
 		case "jobdata":
@@ -260,18 +258,18 @@ func newSample(server string, f url.Values, w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if len(tubes) == 0 || name == "" || body == "" || ttr == "" {
-		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", alert), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", alert), server))
 		return
 	}
 	sampleTTR, err = strconv.Atoi(ttr)
 	if err != nil {
-		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You should give a correct TTR with this sample</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You should give a correct TTR with this sample</span></div>`), server))
 		return
 	}
 	sampleJobsMu.Lock()
 	if checkSampleJobs(name) {
 		sampleJobsMu.Unlock()
-		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You already have a job with this name</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You already have a job with this name</span></div>`), server))
 		return
 	}
 	for _, t := range tubes {
@@ -287,7 +285,7 @@ func newSample(server string, f url.Values, w http.ResponseWriter, r *http.Reque
 	err = saveSample()
 	sampleJobsMu.Unlock()
 	if err != nil {
-		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Save sample job error</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Save sample job error</span></div>`), server))
 		return
 	}
 	w.Header().Set("Location", "./sample?action=manageSamples")
@@ -295,13 +293,13 @@ func newSample(server string, f url.Values, w http.ResponseWriter, r *http.Reque
 }
 
 // editSample provide method to update a sample job.
-func editSample(server string, f url.Values, key string, w http.ResponseWriter, r *http.Request) {
+func editSample(conf SelfConf, server string, f url.Values, key string, w http.ResponseWriter, r *http.Request) {
 	deleteSamples(key)
-	newSample(server, f, w, r)
+	upsertSample(conf, server, key, f, w, r)
 }
 
 // getSampleJobList render a table of sample job.
-func getSampleJobList() string {
+func getSampleJobList(conf SelfConf) string {
 	sampleJobsMu.RLock()
 	defer sampleJobsMu.RUnlock()
 	if len(sampleJobs.Jobs) == 0 {
@@ -310,7 +308,7 @@ func getSampleJobList() string {
 	var tr, td, serverList, buf strings.Builder
 	for _, j := range sampleJobs.Jobs {
 		for _, v := range j.Tubes {
-			for _, s := range selfConf.Servers {
+			for _, s := range conf.Servers {
 				serverList.Reset()
 				serverList.WriteString(`<li><a data-method="post" href="./tube?server=`)
 				serverList.WriteString(s)

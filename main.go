@@ -41,7 +41,8 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	go statisticsCollector()
+	ctx, stop := context.WithCancel(context.Background())
+	go statisticsCollector(ctx)
 
 	openPage()
 
@@ -50,9 +51,10 @@ func main() {
 	<-quit
 
 	fmt.Println("\nshutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	_ = srv.Shutdown(shutdownCtx)
 }
 
 // openPage opens the console URL in the system's default browser.

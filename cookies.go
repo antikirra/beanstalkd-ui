@@ -8,105 +8,100 @@ import (
 	"strings"
 )
 
-// readCookies read config property storage in cookie.
-func readCookies(r *http.Request) {
-	var servers, filters, tubeFilters []string
-	var validServers []string
-	var tubeSelectorValue string
-	// Read servers in cookies
-	beansServers, err := r.Cookie("beansServers")
-	if err == nil {
-		beansServersValue, _ := url.QueryUnescape(beansServers.Value)
-		servers = strings.Split(beansServersValue, `;`)
-	}
-	// Read Filter in cookies
-	filter, err := r.Cookie("filter")
-	if err == nil {
-		filterValue, _ := url.QueryUnescape(filter.Value)
-		filters = strings.Split(filterValue, `,`)
-		filters = compactUnique(filters)
-	} else {
-		filters = []string{"current-connections", "current-jobs-buried", "current-jobs-delayed", "current-jobs-ready", "current-jobs-reserved", "current-jobs-urgent", "current-tubes"}
-	}
-	// Start from config servers, not from stale global state.
-	validServers = append(validServers, pubConf.Servers...)
-	for _, v := range servers {
-		if isValidServer(v) {
-			validServers = append(validServers, v)
+// readCookies loads per-request user preferences from cookies and returns
+// a SelfConf value. This is called once per HTTP request; the result is
+// passed through the call chain — never stored as a global.
+func readCookies(r *http.Request) SelfConf {
+	var conf SelfConf
+
+	// Servers: start from config, add from cookie.
+	conf.Servers = append(conf.Servers, pubConf.Servers...)
+	if c := cookieValue(r, "beansServers"); c != "" {
+		for _, v := range strings.Split(c, ";") {
+			if isValidServer(v) {
+				conf.Servers = append(conf.Servers, v)
+			}
 		}
 	}
-	// Read Tube Filter in cookies
-	tubeFilter, err := r.Cookie("tubefilter")
-	if err == nil {
-		tubeFilterValue, _ := url.QueryUnescape(tubeFilter.Value)
-		tubeFilters = strings.Split(tubeFilterValue, `,`)
-		tubeFilters = compactUnique(tubeFilters)
+	conf.Servers = compactUnique(conf.Servers)
+
+	// Column filters.
+	if c := cookieValue(r, "filter"); c != "" {
+		conf.Filter = compactUnique(strings.Split(c, ","))
 	} else {
-		tubeFilters = []string{"current-jobs-urgent", "current-jobs-ready", "current-jobs-reserved", "current-jobs-delayed", "current-jobs-buried", "total-jobs"}
+		conf.Filter = []string{"current-connections", "current-jobs-buried", "current-jobs-delayed", "current-jobs-ready", "current-jobs-reserved", "current-jobs-urgent", "current-tubes"}
 	}
-	tubeSelector, err := r.Cookie("tubeSelector")
+
+	if c := cookieValue(r, "tubefilter"); c != "" {
+		conf.TubeFilters = compactUnique(strings.Split(c, ","))
+	} else {
+		conf.TubeFilters = []string{"current-jobs-urgent", "current-jobs-ready", "current-jobs-reserved", "current-jobs-delayed", "current-jobs-buried", "total-jobs"}
+	}
+
+	// Scalar preferences.
+	conf.TubeSelector = rawCookieValue(r, "tubeSelector")
+	conf.TubePauseSeconds = readIntCookie(r, "tubePauseSeconds", -1)
+	conf.AutoRefreshTimeoutMs = readIntCookie(r, "autoRefreshTimeoutMs", 500)
+	conf.SearchResultLimit = readIntCookie(r, "searchResultLimit", 25)
+
+	// Boolean flags.
+	conf.DisableJSONDecode = readBoolCookie(r, "isDisabledJsonDecode")
+	conf.DisableUnserialization = readBoolCookie(r, "isDisabledUnserialization")
+	conf.DisableJobDataHighlight = readBoolCookie(r, "isDisabledJobDataHighlight")
+	conf.EnableBase64Decode = readBoolCookie(r, "isEnabledBase64Decode")
+
+	return conf
+}
+
+// cookieValue returns the URL-decoded cookie value, or "" if absent.
+func cookieValue(r *http.Request, name string) string {
+	c, err := r.Cookie(name)
 	if err != nil {
-		tubeSelectorValue = ""
-	} else {
-		tubeSelectorValue = tubeSelector.Value
+		return ""
 	}
+	v, _ := url.QueryUnescape(c.Value)
+	return v
+}
 
-	validServers = compactUnique(validServers)
-
-	selfConfMu.Lock()
-	selfConf.Servers = validServers
-	selfConf.Filter = filters
-	selfConf.TubeFilters = tubeFilters
-	selfConf.DisableJSONDecode = readBoolCookie(r, "isDisabledJsonDecode")
-	selfConf.DisableUnserialization = readBoolCookie(r, "isDisabledUnserialization")
-	selfConf.DisableJobDataHighlight = readBoolCookie(r, "isDisabledJobDataHighlight")
-	selfConf.EnableBase64Decode = readBoolCookie(r, "isEnabledBase64Decode")
-	selfConf.TubePauseSeconds = readIntCookie(r, `tubePauseSeconds`, -1)
-	selfConf.AutoRefreshTimeoutMs = readIntCookie(r, `autoRefreshTimeoutMs`, 500)
-	selfConf.SearchResultLimit = readIntCookie(r, `searchResultLimit`, 25)
-	selfConf.TubeSelector = tubeSelectorValue
-	selfConfMu.Unlock()
+// rawCookieValue returns the raw cookie value without decoding, or "" if absent.
+func rawCookieValue(r *http.Request, name string) string {
+	c, err := r.Cookie(name)
+	if err != nil {
+		return ""
+	}
+	return c.Value
 }
 
 // readIntCookie returns an integer cookie value, or defaultValue if absent or invalid.
 func readIntCookie(r *http.Request, name string, defaultValue int) int {
-	cookie, err := r.Cookie(name)
+	c, err := r.Cookie(name)
 	if err != nil {
 		return defaultValue
 	}
-	value, err := strconv.Atoi(cookie.Value)
+	v, err := strconv.Atoi(c.Value)
 	if err != nil {
 		return defaultValue
 	}
-	return value
+	return v
 }
 
 // readBoolCookie returns true if the cookie value is "1".
 func readBoolCookie(r *http.Request, name string) bool {
-	cookie, err := r.Cookie(name)
+	c, err := r.Cookie(name)
 	if err != nil {
 		return false
 	}
-	return cookie.Value == "1"
+	return c.Value == "1"
 }
 
-// removeServerInCookie removes a server from cookies and updates the response.
-func removeServerInCookie(server string, w http.ResponseWriter, r *http.Request) {
-	selfConfMu.Lock()
-	filtered := make([]string, 0, len(selfConf.Servers))
-	for _, v := range selfConf.Servers {
-		if v != server {
-			filtered = append(filtered, v)
-		}
-	}
-	selfConf.Servers = filtered
-	servers := selfConf.Servers
-	selfConfMu.Unlock()
-
+// removeServerInCookie removes a server from the cookie and updates the response.
+func removeServerInCookie(conf SelfConf, server string, w http.ResponseWriter) {
 	var buf strings.Builder
-	for _, v := range servers {
-		buf.WriteString(v)
-		buf.WriteByte(';')
+	for _, v := range conf.Servers {
+		if v != server {
+			buf.WriteString(v)
+			buf.WriteByte(';')
+		}
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "beansServers",

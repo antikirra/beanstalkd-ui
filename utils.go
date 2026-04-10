@@ -52,18 +52,15 @@ func compactUnique(s []string) []string {
 	return slices.Compact(result)
 }
 
-// removeServerInConfig provide a method to remove property in config by given
-// field.
+// removeServerInConfig removes a server address from the global config.
 func removeServerInConfig(server string) {
-	selfConfMu.Lock()
-	filtered := make([]string, 0, len(selfConf.Servers))
-	for _, v := range selfConf.Servers {
+	filtered := make([]string, 0, len(pubConf.Servers))
+	for _, v := range pubConf.Servers {
 		if v != server {
 			filtered = append(filtered, v)
 		}
 	}
-	selfConf.Servers = filtered
-	selfConfMu.Unlock()
+	pubConf.Servers = filtered
 }
 
 // runCmd run command opens a new browser window pointing to url.
@@ -95,12 +92,12 @@ func base64Decode(s string) string {
 }
 
 // preformat formats a job body for HTML display based on user preferences.
-func preformat(jobBody []byte) string {
+func preformat(conf SelfConf, jobBody []byte) string {
 	job := string(jobBody)
-	if !selfConf.DisableJSONDecode {
+	if !conf.DisableJSONDecode {
 		job = string(prettyJSON(jobBody))
 	}
-	if selfConf.EnableBase64Decode {
+	if conf.EnableBase64Decode {
 		job = base64Decode(job)
 	}
 	return html.EscapeString(job)

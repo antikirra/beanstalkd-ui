@@ -9,12 +9,12 @@ import (
 
 // currentTubeJobsSummaryTable constructs a tube job table based on the given
 // server and tube conf.
-func currentTubeJobsSummaryTable(server string, tube string) string {
+func currentTubeJobsSummaryTable(conf SelfConf, server string, tube string) string {
 	var err error
 	var th, tr, td, template strings.Builder
 	var bstkConn *beanstalk.Conn
 	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
-		for _, v := range selfConf.TubeFilters {
+		for _, v := range conf.TubeFilters {
 			th.WriteString(`<th>`)
 			th.WriteString(v)
 			th.WriteString(`</th>`)
@@ -30,7 +30,7 @@ func currentTubeJobsSummaryTable(server string, tube string) string {
 	}
 	defer bstkConn.Close()
 	tubes, _ := bstkConn.ListTubes()
-	for _, v := range selfConf.TubeFilters {
+	for _, v := range conf.TubeFilters {
 		th.WriteString(`<th>`)
 		th.WriteString(v)
 		th.WriteString(`</th>`)
@@ -47,7 +47,7 @@ func currentTubeJobsSummaryTable(server string, tube string) string {
 		if err != nil {
 			continue
 		}
-		for _, stats := range selfConf.TubeFilters {
+		for _, stats := range conf.TubeFilters {
 			td.WriteString(`<td>`)
 			td.WriteString(statsMap[stats])
 			td.WriteString(`</td>`)
@@ -80,13 +80,19 @@ func currentTubeJobsSummaryTable(server string, tube string) string {
 // currentTubeStatisticCheck provide a method to confirm that the current tube
 // statistics are available.
 func currentTubeStatisticCheck(server string, tube string) bool {
-	if selfConf.StatisticsCollection == 0 {
+	statsConfigMu.RLock()
+	collection := statsConfig.Collection
+	statsConfigMu.RUnlock()
+	if collection == 0 {
 		return false
 	}
+	statisticsData.RLock()
 	s, ok := statisticsData.Server[server]
 	if !ok {
+		statisticsData.RUnlock()
 		return false
 	}
 	_, ok = s[tube]
+	statisticsData.RUnlock()
 	return ok
 }

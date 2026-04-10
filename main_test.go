@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -86,9 +87,9 @@ func testSetup() {
 	}
 	readConf()
 	saveSample()
-	selfConf := selfDir + string(os.PathSeparator) + `aurora.toml`
-	createFile(selfConf)
-	writeFile(selfConf, ConfigFileTemplate)
+	confPath := selfDir + string(os.PathSeparator) + `aurora.toml`
+	createFile(confPath)
+	writeFile(confPath, ConfigFileTemplate)
 	parseFlags()
 	readConf()
 	public, _ := fs.Sub(staticFiles, "public")
@@ -104,7 +105,7 @@ func testSetup() {
 	go func() {
 		http.ListenAndServe(pubConf.Listen, nil)
 	}()
-	go statisticsCollector()
+	go statisticsCollector(context.Background())
 }
 
 func TestIndex(t *testing.T) {
@@ -270,10 +271,10 @@ func TestCurrentTubeJobsActionsRow(t *testing.T) {
 	var req *http.Request
 	var cookie http.Cookie
 	var client = &http.Client{}
-	selfConf := `.` + string(os.PathSeparator) + `aurora.toml`
-	os.Remove(selfConf)
-	createFile(selfConf)
-	writeFile(selfConf, configFileWithSampleJobs)
+	confPath := `.` + string(os.PathSeparator) + `aurora.toml`
+	os.Remove(confPath)
+	createFile(confPath)
+	writeFile(confPath, configFileWithSampleJobs)
 	readConf()
 	req, err = http.NewRequest("GET", server+urls[6], nil)
 	if err != nil {
@@ -306,8 +307,9 @@ func TestMoveReadyJobsTo(t *testing.T) {
 
 func TestSearchTube(t *testing.T) {
 	once.Do(testSetup)
-	searchTube(bstk, `default`, `not_int`, `ready`)
-	searchTube(bstk, `aurora_test_2`, `1`, `ready`)
+	var conf SelfConf
+	searchTube(conf, bstk, `default`, `not_int`, `ready`)
+	searchTube(conf, bstk, `aurora_test_2`, `1`, `ready`)
 }
 
 func TestAddSample(t *testing.T) {
@@ -356,7 +358,8 @@ func TestEditSample(t *testing.T) {
 
 func TestGetServerTubes(t *testing.T) {
 	once.Do(testSetup)
-	getServerTubes("")
+	var conf SelfConf
+	getServerTubes(conf, "")
 }
 
 func TestPrettyJSON(t *testing.T) {
@@ -372,8 +375,9 @@ func TestBase64Decode(t *testing.T) {
 
 func TestDropEditSettings(t *testing.T) {
 	once.Do(testSetup)
-	selfConf.EnableBase64Decode = true
-	dropEditSettings()
+	var conf SelfConf
+	conf.EnableBase64Decode = true
+	dropEditSettings(conf)
 }
 
 func TestRemoveServerInConfig(t *testing.T) {
@@ -393,8 +397,9 @@ func TestSaveSample(t *testing.T) {
 
 func TestAddSampleTube(t *testing.T) {
 	once.Do(testSetup)
+	var conf SelfConf
 	addSampleTube(`aurora_test_2`, `test`)
-	getSampleJobList()
+	getSampleJobList(conf)
 	findSampleJobLocked(`97ec882fd75855dfa1b4bd00d4a367d4`)
 	loadSample(``, `default`, `97ec882fd75855dfa1b4bd00d4a367d4`)
 	loadSample(bstk, `default`, `97ec882fd75855dfa1b4bd00d4a367d4`)
@@ -437,7 +442,8 @@ func TestDeleteSamples(t *testing.T) {
 
 func TestClearTubes(t *testing.T) {
 	once.Do(testSetup)
-	modalClearTubes("")
+	var conf SelfConf
+	modalClearTubes(conf, "")
 }
 
 func TestRunCmd(t *testing.T) {
@@ -459,10 +465,11 @@ func TestStatistic(t *testing.T) {
 		t.Log(err)
 	}
 	time.Sleep(10 * time.Second)
-	tplStatistic(bstk, "default")
+	var conf SelfConf
+	tplStatistic(conf, bstk, "default")
 	statisticsJSON(bstk, "default")
-	tplStatisticEdit("")
-	tplStatisticSetting("")
+	tplStatisticEdit(conf, "")
+	tplStatisticSetting(conf, "")
 	for _, v := range testURLs {
 		req, err := http.NewRequest("GET", server+v, nil)
 		if err != nil {
@@ -476,7 +483,7 @@ func TestStatistic(t *testing.T) {
 			t.Log(err)
 		}
 	}
-	currentTubeJobsSummaryTable(bstk, "default")
+	currentTubeJobsSummaryTable(conf, bstk, "default")
 	resp, err = http.PostForm(server+"/statistics?action=save",
 		url.Values{"frequency": {"-1"}, "collection": {"-1"}, "tubes[127.0.0.1:default]": {"1"}})
 	if err != nil {
@@ -499,8 +506,10 @@ func TestStatistic(t *testing.T) {
 	defer resp.Body.Close()
 	saveStatisticsConfig("not_int", "", []string{})
 	saveStatisticsConfig("1", "not_int", []string{})
-	selfConf.StatisticsFrequency = -1
-	tplStatisticEdit("")
+	statsConfigMu.Lock()
+	statsConfig.Frequency = -1
+	statsConfigMu.Unlock()
+	tplStatisticEdit(conf, "")
 	t.SkipNow()
 }
 
@@ -510,8 +519,8 @@ func TestReadConf(t *testing.T) {
 	if err != nil {
 		return
 	}
-	selfConf := selfDir + string(os.PathSeparator) + `aurora.toml`
-	os.Remove(selfConf)
+	confPath := selfDir + string(os.PathSeparator) + `aurora.toml`
+	os.Remove(confPath)
 	readConf()
 }
 

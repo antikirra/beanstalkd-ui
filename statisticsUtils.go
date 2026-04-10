@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/list"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,22 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/xuri/aurora/beanstalk"
 )
 
 // statisticPreferenceSave provide method to save statistics preference
 // settings.
-func statisticPreferenceSave(f url.Values, w http.ResponseWriter, r *http.Request) {
+func statisticPreferenceSave(conf SelfConf, f url.Values, w http.ResponseWriter, r *http.Request) {
 	var err error
 	var collection, frequency string
 	var tubes []string
 	alert := `<div class="alert alert-danger" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Required fields are not set correct</span></div>`
-	err = readConf()
-	if err != nil {
-		fmt.Fprint(w, tplStatisticSetting(tplStatisticEdit(`<div class="alert alert-danger"><button type="button" class="close" data-dismiss="alert">×</button><span> Read config error</span></div>`)))
-		return
-	}
 	for k, v := range f {
 		switch k {
 		case "frequency":
@@ -39,15 +33,15 @@ func statisticPreferenceSave(f url.Values, w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if len(tubes) == 0 || collection == "" || frequency == "" {
-		fmt.Fprint(w, tplStatisticSetting(tplStatisticEdit(alert)))
+		fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf,alert)))
 		return
 	}
 	err = saveStatisticsConfig(collection, frequency, tubes)
 	if err != nil {
-		fmt.Fprint(w, tplStatisticSetting(tplStatisticEdit(`<div class="alert alert-danger" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Save statistics preference error</span></div>`)))
+		fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf,`<div class="alert alert-danger" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Save statistics preference error</span></div>`)))
 		return
 	}
-	fmt.Fprint(w, tplStatisticSetting(tplStatisticEdit(`<div class="alert alert-success" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Statistics preference saved</span></div>`)))
+	fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf,`<div class="alert alert-success" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Statistics preference saved</span></div>`)))
 }
 
 // saveStatisticsConfig validate collection and frequency parameter and send notify
@@ -68,25 +62,26 @@ func saveStatisticsConfig(collection string, frequency string, tubes []string) e
 	if f < 1 {
 		f = 1
 	}
-	selfConf.StatisticsCollection = c
-	selfConf.StatisticsFrequency = f
-	statisticsDataServer = make(map[string]map[string]map[string]*list.List)
+	statsConfigMu.Lock()
+	statsConfig.Collection = c
+	statsConfig.Frequency = f
+	statsConfigMu.Unlock()
+
+	newServer := make(map[string]map[string]map[string]*list.List)
 	for _, v := range tubes {
-		addr := strings.Split(v, `:`)
+		addr := strings.Split(v, ":")
 		if len(addr) != 3 {
 			continue
 		}
-		tube := make(map[string]map[string]*list.List)
-		tube[addr[2]] = make(map[string]*list.List)
-		s, ok := statisticsDataServer[addr[0]+`:`+addr[1]]
-		if !ok {
-			statisticsDataServer[addr[0]+`:`+addr[1]] = tube
-		} else {
-			s[addr[2]] = tube[addr[2]]
+		serverKey := addr[0] + ":" + addr[1]
+		tubeName := addr[2]
+		if newServer[serverKey] == nil {
+			newServer[serverKey] = make(map[string]map[string]*list.List)
 		}
+		newServer[serverKey][tubeName] = make(map[string]*list.List)
 	}
 	statisticsData.Lock()
-	statisticsData.Server = statisticsDataServer
+	statisticsData.Server = newServer
 	statisticsData.Unlock()
 	notify <- true
 	return nil
@@ -94,23 +89,26 @@ func saveStatisticsConfig(collection string, frequency string, tubes []string) e
 
 // statistic provide method to control statisticAgent collect the statistics
 // data in a Goroutine.
-func statisticsCollector() {
-	freq := selfConf.StatisticsFrequency
-	if freq < 1 {
-		freq = 1
-	}
+func statisticsCollector(ctx context.Context) {
+	freq := getStatsFrequency()
 	ticker := time.NewTicker(time.Duration(freq) * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-notify:
 			ticker.Stop()
-			freq = selfConf.StatisticsFrequency
-			if freq < 1 {
-				freq = 1
-			}
+			freq = getStatsFrequency()
 			ticker = time.NewTicker(time.Duration(freq) * time.Second)
 		case <-ticker.C:
+			statsConfigMu.RLock()
+			collection := statsConfig.Collection
+			statsConfigMu.RUnlock()
+			if collection == 0 {
+				continue
+			}
+
 			statisticsData.RLock()
 			serversCopy := make(map[string][]string)
 			for k, v := range statisticsData.Server {
@@ -119,52 +117,64 @@ func statisticsCollector() {
 				}
 			}
 			statisticsData.RUnlock()
-			collection := selfConf.StatisticsCollection
-			if collection == 0 {
-				continue
-			}
+
 			for k, tubes := range serversCopy {
 				for _, t := range tubes {
-					_ = statisticAgent(k, t)
+					_ = statisticAgent(k, t, collection)
 				}
 			}
 		}
 	}
 }
 
+// getStatsFrequency returns the statistics collection frequency, minimum 1 second.
+func getStatsFrequency() int {
+	statsConfigMu.RLock()
+	f := statsConfig.Frequency
+	statsConfigMu.RUnlock()
+	if f < 1 {
+		return 1
+	}
+	return f
+}
+
 // statisticAgent collect the statistics data by given server and tube.
-func statisticAgent(server string, tube string) error {
-	var err error
-	var bstkConn *beanstalk.Conn
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
-		return err
-	}
-	defer bstkConn.Close()
-	tubeStats := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
-	statsMap, err := tubeStats.Stats()
+func statisticAgent(server, tube string, collection int) error {
+	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
+
+	statsMap, err := newTube(conn, tube).Stats()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
 	for _, field := range statisticsFields {
 		for k, v := range field {
-			t := time.Now()
-			stats, err := strconv.Atoi(statsMap[v])
+			val, err := strconv.Atoi(statsMap[v])
 			if err != nil {
 				continue
 			}
 			statisticsData.Lock()
-			_, ok := statisticsData.Server[server][tube][k]
-			if !ok {
-				statisticsData.Server[server][tube][k] = list.New()
+			srvMap := statisticsData.Server[server]
+			if srvMap == nil {
+				statisticsData.Unlock()
+				continue
 			}
-			if statisticsData.Server[server][tube][k].Len() >= selfConf.StatisticsCollection {
-				front := statisticsData.Server[server][tube][k].Back()
-				statisticsData.Server[server][tube][k].Remove(front)
+			tubeMap := srvMap[tube]
+			if tubeMap == nil {
+				statisticsData.Unlock()
+				continue
 			}
-			statisticsData.Server[server][tube][k].PushFront([]int{t.Year(), int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second(), stats})
+			if tubeMap[k] == nil {
+				tubeMap[k] = list.New()
+			}
+			if tubeMap[k].Len() >= collection {
+				tubeMap[k].Remove(tubeMap[k].Back())
+			}
+			tubeMap[k].PushFront([]int{now.Year(), int(now.Month()), now.Day(), now.Hour(), now.Minute(), now.Second(), val})
 			statisticsData.Unlock()
 		}
 	}
@@ -176,18 +186,26 @@ func statisticsJSON(server, tube string) string {
 	result := make(map[string][][]int)
 
 	statisticsData.RLock()
-	for _, field := range statisticsFields {
-		for k := range field {
-			l, ok := statisticsData.Server[server][tube][k]
-			if !ok {
-				result[k] = [][]int{}
-				continue
+	srvMap := statisticsData.Server[server]
+	if srvMap != nil {
+		tubeMap := srvMap[tube]
+		for _, field := range statisticsFields {
+			for k := range field {
+				if tubeMap == nil {
+					result[k] = [][]int{}
+					continue
+				}
+				l, ok := tubeMap[k]
+				if !ok {
+					result[k] = [][]int{}
+					continue
+				}
+				var series [][]int
+				for e := l.Front(); e != nil; e = e.Next() {
+					series = append(series, e.Value.([]int))
+				}
+				result[k] = series
 			}
-			var series [][]int
-			for e := l.Front(); e != nil; e = e.Next() {
-				series = append(series, e.Value.([]int))
-			}
-			result[k] = series
 		}
 	}
 	statisticsData.RUnlock()

@@ -11,11 +11,11 @@ import (
 
 // currentTubeJobsActionsRow render a section include kick, pause and unpause
 // job button by given server and tube.
-func currentTubeJobsActionsRow(server string, tube string) string {
+func currentTubeJobsActionsRow(conf SelfConf, server string, tube string) string {
 	var err error
 	var bstkConn *beanstalk.Conn
 	var buf, pauseTimeLeft strings.Builder
-	var pause = strconv.Itoa(selfConf.TubePauseSeconds)
+	var pause = strconv.Itoa(conf.TubePauseSeconds)
 	if pause == "-1" {
 		pause = "3600"
 	}
@@ -65,6 +65,7 @@ func currentTubeJobsActionsRow(server string, tube string) string {
 // and tube.
 func currentTubeJobsActionsRowSample(server string, tube string) string {
 	sample := strings.Builder{}
+	sampleJobsMu.RLock()
 	for _, v := range sampleJobs.Tubes {
 		if v.Name != tube {
 			continue
@@ -89,6 +90,7 @@ func currentTubeJobsActionsRowSample(server string, tube string) string {
 			}
 		}
 	}
+	sampleJobsMu.RUnlock()
 	if sample.String() == "" {
 		return `<li><a href="javascript:void(0);">There are no sample jobs</a></li>`
 	}

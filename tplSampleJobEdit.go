@@ -10,7 +10,7 @@ import (
 )
 
 // tplSampleJobEdit render a sample job edit form.
-func tplSampleJobEdit(key string, alert string) string {
+func tplSampleJobEdit(conf SelfConf, key string, alert string) string {
 	var err error
 	var buf, action, title, name, savedTo, saveTo, data, ST, tubeList, TTR strings.Builder
 	if key == "" {
@@ -43,7 +43,7 @@ func tplSampleJobEdit(key string, alert string) string {
 		}
 	}
 
-	for _, server := range selfConf.Servers {
+	for _, server := range conf.Servers {
 		var bstkConn *beanstalk.Conn
 		tubeList.Reset()
 		if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {

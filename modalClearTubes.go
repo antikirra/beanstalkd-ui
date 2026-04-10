@@ -7,7 +7,7 @@ import (
 )
 
 // modalClearTubes renders the modal dialog for clearing jobs from multiple tubes.
-func modalClearTubes(server string) string {
+func modalClearTubes(conf SelfConf, server string) string {
 	tubes := listTubesSorted(server)
 	if tubes == nil {
 		return ""
@@ -33,5 +33,5 @@ func modalClearTubes(server string) string {
 			`<div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">Close</button>`+
 			`<a href="#" class="btn btn-success" id="clearTubes">Clear selected tubes</a><br/><br/>`+
 			`<p class="text-muted text-right small">* Tube clear works by peeking to all jobs and deleting them in a loop.</p></div></div></div></div>`,
-		selfConf.TubeSelector, tubeList.String())
+		conf.TubeSelector, tubeList.String())
 }

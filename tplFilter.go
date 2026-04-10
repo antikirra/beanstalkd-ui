@@ -6,7 +6,7 @@ import (
 )
 
 // tplServerFilterStatsGroups render server filter stats groups checkbox.
-func tplServerFilterStatsGroups() []string {
+func tplServerFilterStatsGroups(conf SelfConf) []string {
 	stats := []string{"", "", "", ""}
 	buf := strings.Builder{}
 	statsGroupsFilter := [][]map[string]string{binlogStatsGroups, cmdStatsGroups, currentStatsGroups, otherStatsGroups}
@@ -14,7 +14,7 @@ func tplServerFilterStatsGroups() []string {
 		for _, statsGroup := range statsGroups {
 			for property, description := range statsGroup {
 				status := ""
-				if slices.Contains(selfConf.Filter, property) {
+				if slices.Contains(conf.Filter, property) {
 					status = `checked`
 				}
 				buf.Reset()
@@ -35,9 +35,9 @@ func tplServerFilterStatsGroups() []string {
 }
 
 // tplServerFilter render modal popup for select server tube stats column.
-func tplServerFilter() string {
+func tplServerFilter(conf SelfConf) string {
 	filter := strings.Builder{}
-	stats := tplServerFilterStatsGroups()
+	stats := tplServerFilterStatsGroups(conf)
 	filter.WriteString(`<div id="filterServer" data-cookie="filter" class="modal fade" tabindex="-1" role="dialog"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button><h3 id="filter-label" class="text-info">Filter columns</h3></div><div class="modal-body"><form class="form-group"><div class="tabbable"><ul class="nav nav-tabs"><li class="active"><a href="#binlog" data-toggle="tab">binlog</a></li><li><a href="#cmd" data-toggle="tab">cmd</a></li><li><a href="#current" data-toggle="tab">current</a></li><li><a href="#other" data-toggle="tab">other</a></li></ul><div class="tab-content"><div class="tab-pane active" id="binlog">`)
 	filter.WriteString(stats[0])
 	filter.WriteString(`</div><div class="tab-pane" id="cmd">`)
@@ -51,7 +51,7 @@ func tplServerFilter() string {
 }
 
 // tplTubeFilter render a modal popup for select job stats of tube.
-func tplTubeFilter() string {
+func tplTubeFilter(conf SelfConf) string {
 	var buf, currents, others strings.Builder
 	for k, current := range tubeStatFields {
 		if k > 7 {
@@ -59,7 +59,7 @@ func tplTubeFilter() string {
 		}
 		for property, description := range current {
 			status := ""
-			if slices.Contains(selfConf.TubeFilters, property) {
+			if slices.Contains(conf.TubeFilters, property) {
 				status = `checked`
 			}
 			currents.WriteString(`<div class="form-group"><div class="checkbox"><label class="checkbox"><input type="checkbox" name="`)
@@ -80,7 +80,7 @@ func tplTubeFilter() string {
 		}
 		for property, description := range other {
 			status := ""
-			if slices.Contains(selfConf.TubeFilters, property) {
+			if slices.Contains(conf.TubeFilters, property) {
 				status = `checked`
 			}
 			others.WriteString(`<div class="form-group"><div class="checkbox"><label class="checkbox"><input type="checkbox" name="`)

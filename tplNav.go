@@ -10,16 +10,16 @@ import (
 )
 
 // getServerStatus render a server stats table.
-func getServerStatus() string {
+func getServerStatus(conf SelfConf) string {
 	var err error
 	var buf, td, th strings.Builder
-	for _, addr := range selfConf.Servers {
+	for _, addr := range conf.Servers {
 		var bstkConn *beanstalk.Conn
 		if bstkConn, err = beanstalk.Dial("tcp", addr); err != nil {
 			td.WriteString(`<tr><td>`)
 			td.WriteString(addr)
 			td.WriteString(`</td><td colspan="`)
-			td.WriteString(strconv.Itoa(len(selfConf.Filter)))
+			td.WriteString(strconv.Itoa(len(conf.Filter)))
 			td.WriteString(`" class="row-full">&nbsp;</td><td><a class="btn btn-xs btn-danger" data-method="post" title="Remove from list" href="serversRemove?action=serversRemove&removeServer=`)
 			td.WriteString(addr)
 			td.WriteString(`"><span class="glyphicon glyphicon-minus"> </span></a></td></tr>`)
@@ -32,7 +32,7 @@ func getServerStatus() string {
 		td.WriteString(`">`)
 		td.WriteString(addr)
 		td.WriteString(`</a></td>`)
-		for _, v := range selfConf.Filter {
+		for _, v := range conf.Filter {
 			td.WriteString(`<td>`)
 			td.WriteString(s[v])
 			td.WriteString(`</td>`)
@@ -41,7 +41,7 @@ func getServerStatus() string {
 		td.WriteString(addr)
 		td.WriteString(`"><span class="glyphicon glyphicon-minus"> </span></a></td></tr>`)
 	}
-	for _, v := range selfConf.Filter {
+	for _, v := range conf.Filter {
 		th.WriteString(`<th>`)
 		th.WriteString(v)
 		th.WriteString(`</th>`)
@@ -55,11 +55,11 @@ func getServerStatus() string {
 }
 
 // getServerTubes render a tubes stats table by given server.
-func getServerTubes(server string) string {
+func getServerTubes(conf SelfConf, server string) string {
 	var err error
 	var buf, th, tr, td strings.Builder
 	var bstkConn *beanstalk.Conn
-	for _, v := range selfConf.TubeFilters {
+	for _, v := range conf.TubeFilters {
 		th.WriteString(`<th>`)
 		th.WriteString(v)
 		th.WriteString(`</th>`)
@@ -82,7 +82,7 @@ func getServerTubes(server string) string {
 		if err != nil {
 			continue
 		}
-		for _, stats := range selfConf.TubeFilters {
+		for _, stats := range conf.TubeFilters {
 			td.WriteString(`<td>`)
 			td.WriteString(statsMap[stats])
 			td.WriteString(`</td>`)
@@ -107,7 +107,7 @@ func getServerTubes(server string) string {
 }
 
 // dropDownServer render a navigation dropdown menu for server list.
-func dropDownServer(currentServer string) string {
+func dropDownServer(conf SelfConf, currentServer string) string {
 	var ul strings.Builder
 	if currentServer == "" {
 		currentServer = `All servers`
@@ -115,7 +115,7 @@ func dropDownServer(currentServer string) string {
 	ul.WriteString(`<li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">`)
 	ul.WriteString(currentServer)
 	ul.WriteString(` <span class="caret"></span></a><ul class="dropdown-menu">`)
-	for _, addr := range selfConf.Servers {
+	for _, addr := range conf.Servers {
 		if addr == currentServer {
 			continue
 		}
@@ -133,7 +133,7 @@ func dropDownServer(currentServer string) string {
 }
 
 // dropDownTube render a navigation dropdown menu for tube list.
-func dropDownTube(server string, currentTube string) string {
+func dropDownTube(conf SelfConf, server string, currentTube string) string {
 	var ul strings.Builder
 	if currentTube == "" {
 		currentTube = `All tubes`
@@ -172,24 +172,24 @@ func dropDownTube(server string, currentTube string) string {
 }
 
 // dropEditSettings render a navigation dropdown menu for set preference.
-func dropEditSettings() string {
+func dropEditSettings(conf SelfConf) string {
 	var buf strings.Builder
 	var isDisabledJSONDecode, isDisabledJobDataHighlight, isEnabledBase64Decode string
-	if !selfConf.DisableJSONDecode {
+	if !conf.DisableJSONDecode {
 		isDisabledJSONDecode = `checked="checked"`
 	}
-	if !selfConf.DisableJobDataHighlight {
+	if !conf.DisableJobDataHighlight {
 		isDisabledJobDataHighlight = `checked="checked"`
 	}
-	if selfConf.EnableBase64Decode {
+	if conf.EnableBase64Decode {
 		isEnabledBase64Decode = `checked="checked"`
 	}
 	buf.WriteString(`<div id="settings" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="settings-label" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button><h4 class="modal-title" id="settings-label">Settings</h4></div><div class="modal-body"><fieldset><div class="form-group"><label for="tubePauseSeconds"><b>Tube pause seconds</b> (<i>-1</i> means the default: <i>3600</i>, <i>0</i> is reserved for un-pause)</label><input class="form-control focused" id="tubePauseSeconds" type="number" value="`)
-	buf.WriteString(strconv.Itoa(selfConf.TubePauseSeconds))
+	buf.WriteString(strconv.Itoa(conf.TubePauseSeconds))
 	buf.WriteString(`"></div><div class="form-group"><label><b>Auto-refresh interval in milliseconds</b> (Default: <i>500</i>)</label><input class="form-control focused" id="autoRefreshTimeoutMs" type="number" value="`)
-	buf.WriteString(strconv.Itoa(selfConf.AutoRefreshTimeoutMs))
+	buf.WriteString(strconv.Itoa(conf.AutoRefreshTimeoutMs))
 	buf.WriteString(`"></div><div class="form-group"><label><b>Search result limits</b> (Default: <i>25</i>)</label><input class="form-control focused" id="searchResultLimit" type="number" value="`)
-	buf.WriteString(strconv.Itoa(selfConf.SearchResultLimit))
+	buf.WriteString(strconv.Itoa(conf.SearchResultLimit))
 	buf.WriteString(`"></div><div class="form-group"><label><b>Preferred way to deal with job data</b></label><div class="checkbox"><label><input type="checkbox" id="isDisabledJsonDecode" value="1" `)
 	buf.WriteString(isDisabledJSONDecode)
 	buf.WriteString(`>before display: JSON decode</label></div><div class="checkbox"><label><input type="checkbox" id="isEnabledBase64Decode" value="1" `)
