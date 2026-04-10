@@ -1,0 +1,54 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">Statistics — {{.StatsServer}} › {{.StatsTube}}</h1>
+</div>
+
+<div class="page">
+  <div class="card">
+    <div class="card-body">
+      <div id="stats-chart" style="height:28em; width:100%"></div>
+      <div class="form-group" style="margin-top:16px">
+        <label class="form-label">Update interval (seconds)</label>
+        <input type="number" id="statsUpdateInterval" class="form-input" value="1" min="1" style="width:8em">
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var server = {{printf "%q" .StatsServer}};
+  var tube = {{printf "%q" .StatsTube}};
+  var interval = 1;
+  var chart = document.getElementById('stats-chart');
+
+  document.getElementById('statsUpdateInterval').addEventListener('change', function() {
+    var v = parseInt(this.value);
+    if (v && v >= 1) interval = v;
+  });
+
+  function fetchData() {
+    fetch('/statistics?action=reloader&server=' + encodeURIComponent(server) + '&tube=' + encodeURIComponent(tube))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        renderChart(data);
+      });
+  }
+
+  function renderChart(data) {
+    var html = '<table class="table table-compact"><thead><tr><th>Field</th><th>Points</th></tr></thead><tbody>';
+    for (var key in data) {
+      html += '<tr><td>' + key + '</td><td>' + data[key].length + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    chart.innerHTML = html;
+  }
+
+  function loop() {
+    fetchData();
+    setTimeout(loop, interval * 1000);
+  }
+  loop();
+})();
+</script>
+{{end}}

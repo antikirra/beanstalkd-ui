@@ -1,0 +1,278 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">
+    <a href="/" hx-get="/" hx-target="#main" hx-push-url="true" class="breadcrumb-link">Servers</a>
+    <span class="breadcrumb-sep">›</span>
+    <a href="{{serverURL .CurrentServer}}" hx-get="{{serverURL .CurrentServer}}" hx-target="#main" hx-push-url="true" class="breadcrumb-link">{{.CurrentServer}}</a>
+    <span class="breadcrumb-sep">›</span>
+    {{.CurrentTube}}
+  </h1>
+  <div class="topbar-actions">
+    <form class="search-form" action="/tube" method="get">
+      <input type="hidden" name="server" value="{{.CurrentServer}}">
+      <input type="hidden" name="tube" value="{{.CurrentTube}}">
+      <input type="hidden" name="action" value="search">
+      <input type="hidden" name="limit" value="{{.Conf.SearchResultLimit}}">
+      <input type="text" name="searchStr" class="search-input" placeholder="Search jobs..." value="{{.SearchStr}}">
+    </form>
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-addjob').classList.add('open')">
+      + Add job
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modal-settings').classList.add('open')">
+      Settings
+    </button>
+  </div>
+</div>
+
+<div class="page">
+  {{template "tube_content" .}}
+  {{template "settings_modal" .}}
+</div>
+{{end}}
+
+{{define "tube_content"}}
+<div id="tube-detail"
+     hx-get="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=reloader"
+     hx-trigger="every 30s" hx-swap="innerHTML">
+
+  {{/* Tube stats */}}
+  {{if .TubeInfo}}
+  <div class="card">
+    <div class="card-header">
+      <h3>{{.CurrentTube}}</h3>
+      {{if .HasStats}}
+      <a href="/statistics?server={{.CurrentServer}}&tube={{.CurrentTube}}" class="btn btn-ghost btn-sm">
+        📊 Statistics
+      </a>
+      {{end}}
+    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          {{range .TubeFilters}}<th>{{.}}</th>{{end}}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {{$info := .TubeInfo}}
+          {{range .TubeFilters}}<td>{{index $info .}}</td>{{end}}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card">
+    <div class="empty-state">
+      Tube "{{.CurrentTube}}" not found or empty.
+      <br><br>
+      <a href="{{serverURL .CurrentServer}}" class="btn btn-ghost btn-sm">← Back to server</a>
+    </div>
+  </div>
+  {{end}}
+
+  {{/* Actions row */}}
+  {{if .TubeInfo}}
+  <div class="card actions-row">
+    <b>Actions:</b>
+    <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=kick&count=1" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm">⏩ Kick 1</button>
+    </form>
+    <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=kick" style="display:inline" class="kick-form">
+      <button type="submit" class="btn btn-ghost btn-sm">⏭ Kick</button>
+      <input type="number" name="count" value="10" min="0" class="form-input form-input-inline" style="width:5em">
+    </form>
+    {{if eq .PauseSeconds "0"}}
+    <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=pause&count=-1" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm" title="Pause tube">⏸ Pause</button>
+    </form>
+    {{else}}
+    <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=pause&count=0" style="display:inline">
+      <button type="submit" class="btn btn-ghost btn-sm" title="Unpause ({{.PauseSeconds}}s left)">▶ Unpause</button>
+    </form>
+    {{end}}
+    {{if .SampleTubeMap}}
+    <div class="dropdown" style="display:inline-block">
+      <button class="btn btn-primary btn-sm dropdown-toggle">+ Add job ▾</button>
+      <div class="dropdown-menu">
+        {{range index .SampleTubeMap .CurrentTube}}
+        <form method="POST" action="/tube?server={{$.CurrentServer}}&tube={{$.CurrentTube}}&action=loadSample&key={{.Key}}">
+          <button type="submit" class="dropdown-item">{{.Name}}</button>
+        </form>
+        {{end}}
+        <hr class="dropdown-divider">
+        <a href="/sample?action=manageSamples" class="dropdown-item">Manage samples</a>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{/* Search results */}}
+  {{if .SearchResults}}
+  <div class="card">
+    <div class="card-header">
+      <h3>Search results for "{{.SearchStr}}"</h3>
+      <a href="{{tubeURL .CurrentServer .CurrentTube}}" class="btn btn-ghost btn-sm">← Back</a>
+    </div>
+    <table class="table">
+      <thead>
+        <tr><th>ID</th><th>State</th><th>Data</th><th>Actions</th></tr>
+      </thead>
+      <tbody>
+        {{range .SearchResults}}
+        <tr>
+          <td>{{.ID}}</td>
+          <td><span class="badge badge-{{.State}}">{{.State}}</span></td>
+          <td class="ellipsize">{{.Data}}</td>
+          <td>
+            <form method="POST" action="{{tubeURL $.CurrentServer $.CurrentTube}}&action=deleteJob&jobid={{.ID}}&state={{.State}}" style="display:inline">
+              <button type="submit" class="btn btn-danger-outline btn-xs">Delete</button>
+            </form>
+            <form method="POST" action="{{tubeURL $.CurrentServer $.CurrentTube}}&action=kickJob&jobid={{.ID}}" style="display:inline">
+              <button type="submit" class="btn btn-ghost btn-xs">Kick</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <p class="text-muted" style="padding: 12px">First {{.SearchLimit}} rows displayed per state.</p>
+  </div>
+  {{end}}
+
+  {{/* Job showcase */}}
+  {{if .TubeInfo}}
+  {{template "job_section" dict "Title" "ready" "Job" .ReadyJob "Server" .CurrentServer "Tube" .CurrentTube "Tubes" .Tubes "Conf" .Conf}}
+  {{template "job_section" dict "Title" "delayed" "Job" .DelayedJob "Server" .CurrentServer "Tube" .CurrentTube "Tubes" .Tubes "Conf" .Conf}}
+  {{template "job_section" dict "Title" "buried" "Job" .BuriedJob "Server" .CurrentServer "Tube" .CurrentTube "Tubes" .Tubes "Conf" .Conf}}
+  {{end}}
+</div>
+
+{{/* Add job modal */}}
+<div class="modal" id="modal-addjob">
+  <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Add New Job</h3>
+      <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tube name</label>
+        <input type="text" id="addJobTube" class="form-input" value="{{.CurrentTube}}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data</label>
+        <textarea id="addJobData" rows="4" class="form-input"></textarea>
+      </div>
+      <div class="form-group" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px">
+        <div>
+          <label class="form-label">Priority</label>
+          <input type="number" id="addJobPriority" class="form-input" value="{{defaultPriority}}">
+        </div>
+        <div>
+          <label class="form-label">Delay</label>
+          <input type="number" id="addJobDelay" class="form-input" value="{{defaultDelay}}">
+        </div>
+        <div>
+          <label class="form-label">TTR</label>
+          <input type="number" id="addJobTTR" class="form-input" value="{{defaultTTR}}">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="this.closest('.modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-primary" id="addJobBtn">Add job</button>
+    </div>
+  </div>
+</div>
+
+{{/* Add sample from job modal */}}
+<div class="modal" id="modal-addsample">
+  <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+  <div class="modal-content modal-sm">
+    <div class="modal-header">
+      <h3>Add to Samples</h3>
+      <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="addSampleJobId">
+      <div class="form-group">
+        <label class="form-label">Sample name *</label>
+        <input type="text" id="addSampleName" class="form-input" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Available on tubes</label>
+        {{range .Tubes}}
+        <label class="checkbox-label">
+          <input type="checkbox" name="tubes[{{.}}]" value="1"
+                 {{if eq . $.CurrentTube}}checked{{end}}>
+          {{.}}
+        </label>
+        {{end}}
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="this.closest('.modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-primary" id="addSampleBtn">Save sample</button>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "job_section"}}
+<div class="card">
+  <div class="card-header">
+    <h3>Next job in "{{.Title}}" state</h3>
+    {{if .Job}}
+    <div class="card-actions">
+      {{$tube := .Tube}}{{$server := .Server}}
+      <button class="btn btn-ghost btn-xs addSample" data-jobid="{{.Job.ID}}"
+              data-server="{{$server}}" data-tube="{{$tube}}">+ Sample</button>
+      <form method="POST" action="{{tubeURL $server $tube}}&action=deleteJob&jobid={{.Job.ID}}&state={{.Title}}" style="display:inline">
+        <button type="submit" class="btn btn-danger-outline btn-xs">Delete</button>
+      </form>
+      <form method="POST" action="{{tubeURL $server $tube}}&action=deleteAll&state={{.Title}}" style="display:inline">
+        <button type="submit" class="btn btn-danger-outline btn-xs"
+                onclick="return confirm('Delete ALL {{.Title}} jobs?')">Delete all</button>
+      </form>
+      {{if .Tubes}}
+      <div class="dropdown" style="display:inline-block">
+        <button class="btn btn-ghost btn-xs dropdown-toggle">Move all →</button>
+        <div class="dropdown-menu">
+          {{range .Tubes}}
+          <form method="POST" action="{{tubeURL $server $tube}}&action=moveJobsTo&state={{$.Title}}&destTube={{.}}">
+            <button type="submit" class="dropdown-item">{{.}}</button>
+          </form>
+          {{end}}
+          <hr class="dropdown-divider">
+          <form method="POST" action="{{tubeURL $server $tube}}&action=moveJobsTo&state={{.Title}}&destState=buried">
+            <button type="submit" class="dropdown-item">→ Buried</button>
+          </form>
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  {{if .Job}}
+  <div class="job-detail">
+    <div class="job-stats">
+      <table class="table table-compact">
+        <tbody>
+          {{$stats := .Job.Stats}}
+          {{range jobStatsOrder}}
+          <tr><td class="text-muted">{{.}}</td><td>{{index $stats .}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div class="job-data">
+      <pre><code>{{formatJobData .Conf .Job.Data}}</code></pre>
+    </div>
+  </div>
+  {{else}}
+  <div class="empty-state">empty</div>
+  {{end}}
+</div>
+{{end}}

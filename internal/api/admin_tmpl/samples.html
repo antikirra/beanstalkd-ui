@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">Manage Samples</h1>
+  <div class="topbar-actions">
+    <a href="/sample?action=newSample" class="btn btn-primary btn-sm"
+       hx-get="/sample?action=newSample" hx-target="#main" hx-push-url="true">
+      + New sample
+    </a>
+  </div>
+</div>
+
+<div class="page">
+  <div class="card">
+    {{if .SampleJobs}}
+    <table class="table">
+      <thead>
+        <tr><th>Name</th><th>Tubes</th><th style="width:150px">Actions</th></tr>
+      </thead>
+      <tbody>
+        {{range .SampleJobs}}
+        <tr>
+          <td>
+            <a href="/sample?action=editSample&key={{.Key}}"
+               hx-get="/sample?action=editSample&key={{.Key}}" hx-target="#main" hx-push-url="true">{{.Name}}</a>
+          </td>
+          <td>
+            {{range .Tubes}}<span class="badge">{{.}}</span> {{end}}
+          </td>
+          <td>
+            <a href="/sample?action=editSample&key={{.Key}}" class="btn btn-ghost btn-xs"
+               hx-get="/sample?action=editSample&key={{.Key}}" hx-target="#main" hx-push-url="true">Edit</a>
+            <form method="POST" action="/sample?action=deleteSample&key={{.Key}}" style="display:inline">
+              <button type="submit" class="btn btn-danger-outline btn-xs"
+                      onclick="return confirm('Delete this sample?')">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty-state">
+      No saved samples.
+      <br><br>
+      <a href="/sample?action=newSample" class="btn btn-primary btn-sm">+ Create first sample</a>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

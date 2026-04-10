@@ -1,0 +1,122 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">
+    <a href="/" hx-get="/" hx-target="#main" hx-push-url="true" class="breadcrumb-link">Servers</a>
+    <span class="breadcrumb-sep">›</span>
+    {{.CurrentServer}}
+  </h1>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modal-clear-tubes').classList.add('open')">
+      Clear tubes
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('modal-settings').classList.add('open')">
+      Settings
+    </button>
+  </div>
+</div>
+
+<div class="page">
+  {{template "tube_table" .}}
+
+  {{/* Clear tubes modal */}}
+  {{if .Tubes}}
+  <div class="modal" id="modal-clear-tubes">
+    <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Clear Multiple Tubes</h3>
+        <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Filter <small class="text-muted">(regex pattern)</small></label>
+          <div style="display:flex; gap:8px">
+            <input type="text" id="tubeSelector" class="form-input" placeholder="prefix*" value="{{.Conf.TubeSelector}}">
+            <button class="btn btn-primary btn-sm" id="clearTubesSelect">Select</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label"><b>Tube list</b></label>
+          {{range .Tubes}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{.}}" value="1">
+            <b>{{.}}</b>
+          </label>
+          {{end}}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.closest('.modal').classList.remove('open')">Cancel</button>
+        <button class="btn btn-danger" id="clearTubesBtn">Clear selected tubes</button>
+      </div>
+    </div>
+  </div>
+  {{end}}
+
+  {{/* Tube filter modal */}}
+  <div class="modal" id="modal-tube-filter">
+    <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Filter Columns</h3>
+        <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab tab-active" data-tab="current">current</button>
+          <button class="tab" data-tab="other">other</button>
+        </div>
+        <div class="tab-panel tab-panel-active" data-panel="current">
+          {{range $i, $f := .TubeStatFields}}{{if le $i 7}}{{range $k, $v := $f}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.TubeFilters $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}{{end}}
+        </div>
+        <div class="tab-panel" data-panel="other">
+          {{range $i, $f := .TubeStatFields}}{{if gt $i 7}}{{range $k, $v := $f}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.TubeFilters $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}{{end}}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveFilterCookie('tubefilter'); this.closest('.modal').classList.remove('open')">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  {{template "settings_modal" .}}
+</div>
+{{end}}
+
+{{define "tube_table"}}
+<div class="card" id="tube-list"
+     hx-get="/server?server={{.CurrentServer}}&action=reloader" hx-trigger="every 30s" hx-swap="innerHTML">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>name</th>
+        {{range .TubeFilters}}<th>{{.}}</th>{{end}}
+      </tr>
+    </thead>
+    <tbody>
+      {{range .TubeStats}}
+      <tr>
+        <td>
+          <a href="{{tubeURL $.CurrentServer .Name}}"
+             hx-get="{{tubeURL $.CurrentServer .Name}}" hx-target="#main" hx-push-url="true">{{.Name}}</a>
+        </td>
+        {{$stats := .Stats}}
+        {{range $.TubeFilters}}<td>{{index $stats .}}</td>{{end}}
+      </tr>
+      {{else}}
+      <tr><td colspan="{{add (len .TubeFilters) 1}}" class="text-center text-muted">No tubes found</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

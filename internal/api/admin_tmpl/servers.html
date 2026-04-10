@@ -1,0 +1,184 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">All Servers</h1>
+  <div class="topbar-actions">
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('modal-add-server').classList.add('open')">
+      + Add server
+    </button>
+    <button class="btn btn-ghost btn-sm" id="autoRefreshToggle" title="Toggle auto-refresh">
+      ↻ Auto-refresh
+    </button>
+  </div>
+</div>
+
+<div class="page">
+  {{template "server_table" .}}
+
+  {{/* Settings modal */}}
+  {{template "settings_modal" .}}
+
+  {{/* Add server modal */}}
+  <div class="modal" id="modal-add-server">
+    <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h3>Add Server</h3>
+        <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="host">Host</label>
+          <input type="text" id="host" value="localhost" class="form-input">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="port">Port</label>
+          <input type="number" id="port" value="11300" class="form-input">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="this.closest('.modal').classList.remove('open')">Cancel</button>
+        <button class="btn btn-primary" id="addServerBtn">Add server</button>
+      </div>
+    </div>
+  </div>
+
+  {{/* Filter columns modal */}}
+  <div class="modal" id="modal-filter">
+    <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Filter Columns</h3>
+        <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab tab-active" data-tab="binlog">binlog</button>
+          <button class="tab" data-tab="cmd">cmd</button>
+          <button class="tab" data-tab="current">current</button>
+          <button class="tab" data-tab="other">other</button>
+        </div>
+        <div class="tab-panel tab-panel-active" data-panel="binlog">
+          {{range .BinlogStatsGroups}}{{range $k, $v := .}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}
+        </div>
+        <div class="tab-panel" data-panel="cmd">
+          {{range .CmdStatsGroups}}{{range $k, $v := .}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}
+        </div>
+        <div class="tab-panel" data-panel="current">
+          {{range .CurrentStatsGroups}}{{range $k, $v := .}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}
+        </div>
+        <div class="tab-panel" data-panel="other">
+          {{range .OtherStatsGroups}}{{range $k, $v := .}}
+          <label class="checkbox-label">
+            <input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}>
+            <b>{{$k}}</b><br><small class="text-muted">{{$v}}</small>
+          </label>
+          {{end}}{{end}}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="saveFilterCookie('filter'); this.closest('.modal').classList.remove('open')">Apply</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{define "server_table"}}
+<div class="card" id="server-list"
+     hx-get="/index" hx-trigger="every 30s" hx-swap="innerHTML">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>name</th>
+        {{range .Filter}}<th>{{.}}</th>{{end}}
+        <th style="width:40px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .ServerStats}}
+      <tr>
+        <td>
+          {{if .Online}}
+          <a href="/server?server={{.Addr}}"
+             hx-get="/server?server={{.Addr}}" hx-target="#main" hx-push-url="true">{{.Addr}}</a>
+          {{else}}
+          <span class="text-muted">{{.Addr}}</span>
+          {{end}}
+        </td>
+        {{if .Online}}
+          {{$stats := .Stats}}
+          {{range $.Filter}}<td>{{index $stats .}}</td>{{end}}
+        {{else}}
+          <td colspan="{{len $.Filter}}" class="text-muted">offline</td>
+        {{end}}
+        <td>
+          <form method="POST" action="/serversRemove?server={{.Addr}}" style="display:inline">
+            <button type="submit" class="btn btn-danger-outline btn-xs" title="Remove from list">−</button>
+          </form>
+        </td>
+      </tr>
+      {{else}}
+      <tr><td colspan="{{add (len .Filter) 2}}" class="text-center text-muted">No servers configured</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{define "settings_modal"}}
+<div class="modal" id="modal-settings">
+  <div class="modal-backdrop" onclick="this.parentElement.classList.remove('open')"></div>
+  <div class="modal-content modal-sm">
+    <div class="modal-header">
+      <h3>Settings</h3>
+      <button class="modal-close" onclick="this.closest('.modal').classList.remove('open')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Tube pause seconds <small class="text-muted">(-1 = default 3600, 0 = unpause)</small></label>
+        <input type="number" id="tubePauseSeconds" class="form-input" value="{{.Conf.TubePauseSeconds}}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Auto-refresh interval (ms) <small class="text-muted">(default: 500)</small></label>
+        <input type="number" id="autoRefreshTimeoutMs" class="form-input" value="{{.Conf.AutoRefreshTimeoutMs}}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Search result limit <small class="text-muted">(default: 25)</small></label>
+        <input type="number" id="searchResultLimit" class="form-input" value="{{.Conf.SearchResultLimit}}">
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="isDisabledJsonDecode" {{checkedIf (not .Conf.DisableJSONDecode)}}>
+          JSON decode before display
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="isEnabledBase64Decode" {{checkedIf .Conf.EnableBase64Decode}}>
+          Base64 decode before display
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="isDisabledJobDataHighlight" {{checkedIf (not .Conf.DisableJobDataHighlight)}}>
+          Enable syntax highlight
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="saveSettings(); this.closest('.modal').classList.remove('open')">Save</button>
+    </div>
+  </div>
+</div>
+{{end}}

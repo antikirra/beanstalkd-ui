@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">Statistics Preference</h1>
+</div>
+
+<div class="page">
+  <div class="card">
+    <form method="POST" action="/statistics?action=save">
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">
+            Collection record number
+            <small class="text-muted">(0 = disabled, recommended: 300)</small>
+          </label>
+          <input type="number" name="collection" class="form-input" min="0" required
+                 value="{{.StatsCollection}}" style="width:12em">
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            Acquisition frequency (seconds)
+            <small class="text-muted">(default: 300, minimum: 1)</small>
+          </label>
+          <input type="number" name="frequency" class="form-input" min="1" required
+                 value="{{.StatsFrequency}}" style="width:12em">
+        </div>
+        <div class="form-group">
+          <label class="form-label"><b>Monitor tubes</b></label>
+          {{range $server, $tubes := .StatsTubes}}
+          <div style="margin-bottom:12px">
+            <b>{{$server}}</b>
+            <div style="padding-left:16px; margin-top:4px">
+              {{range $tube, $checked := $tubes}}
+              <label class="checkbox-label">
+                <input type="checkbox" name="tubes[{{$server}}:{{$tube}}]" value="1"
+                       {{if $checked}}checked{{end}}>
+                {{$tube}}
+              </label>
+              {{end}}
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </div>
+      <div class="card-footer">
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
