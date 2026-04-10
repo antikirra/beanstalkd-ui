@@ -9,13 +9,13 @@ import (
 	"github.com/xuri/aurora/beanstalk"
 )
 
-// getServerStatus render a server stats table.
+// getServerStatus renders the server status table.
 func getServerStatus(conf SelfConf) string {
 	var err error
 	var buf, td, th strings.Builder
 	for _, addr := range conf.Servers {
-		var bstkConn *beanstalk.Conn
-		if bstkConn, err = beanstalk.Dial("tcp", addr); err != nil {
+		var conn *beanstalk.Conn
+		if conn, err = dialBeanstalk(addr); err != nil {
 			td.WriteString(`<tr><td>`)
 			td.WriteString(addr)
 			td.WriteString(`</td><td colspan="`)
@@ -25,8 +25,8 @@ func getServerStatus(conf SelfConf) string {
 			td.WriteString(`"><span class="glyphicon glyphicon-minus"> </span></a></td></tr>`)
 			continue
 		}
-		s, _ := bstkConn.Stats()
-		_ = bstkConn.Close()
+		s, _ := conn.Stats()
+		_ = conn.Close()
 		td.WriteString(`<tr><td><a href="server?server=`)
 		td.WriteString(addr)
 		td.WriteString(`">`)
@@ -54,30 +54,27 @@ func getServerStatus(conf SelfConf) string {
 	return buf.String()
 }
 
-// getServerTubes render a tubes stats table by given server.
+// getServerTubes renders the tube stats table for a server.
 func getServerTubes(conf SelfConf, server string) string {
 	var err error
 	var buf, th, tr, td strings.Builder
-	var bstkConn *beanstalk.Conn
+	var conn *beanstalk.Conn
 	for _, v := range conf.TubeFilters {
 		th.WriteString(`<th>`)
 		th.WriteString(v)
 		th.WriteString(`</th>`)
 	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+	if conn, err = dialBeanstalk(server); err != nil {
 		buf.WriteString(`<div id="idAllTubes"><section id="summaryTable"><div class="row"><div class="col-sm-12"><table class="table table-striped table-hover"><thead><tr><th>name</th>`)
 		buf.WriteString(th.String())
 		buf.WriteString(`</tr></thead><tbody></tbody></table></div></div></section></div>`)
 		return buf.String()
 	}
-	defer bstkConn.Close()
-	tubes, _ := bstkConn.ListTubes()
+	defer conn.Close()
+	tubes, _ := conn.ListTubes()
 	sort.Strings(tubes)
 	for _, v := range tubes {
-		tubeStats := &beanstalk.Tube{
-			Conn: bstkConn,
-			Name: v,
-		}
+		tubeStats := newTube(conn, v)
 		statsMap, err := tubeStats.Stats()
 		if err != nil {
 			continue
@@ -106,7 +103,7 @@ func getServerTubes(conf SelfConf, server string) string {
 	return buf.String()
 }
 
-// dropDownServer render a navigation dropdown menu for server list.
+// dropDownServer renders the server navigation dropdown.
 func dropDownServer(conf SelfConf, currentServer string) string {
 	var ul strings.Builder
 	if currentServer == "" {
@@ -132,8 +129,8 @@ func dropDownServer(conf SelfConf, currentServer string) string {
 	return ul.String()
 }
 
-// dropDownTube render a navigation dropdown menu for tube list.
-func dropDownTube(conf SelfConf, server string, currentTube string) string {
+// dropDownTube renders the tube navigation dropdown.
+func dropDownTube(conf SelfConf, server, currentTube string) string {
 	var ul strings.Builder
 	if currentTube == "" {
 		currentTube = `All tubes`
@@ -141,17 +138,17 @@ func dropDownTube(conf SelfConf, server string, currentTube string) string {
 	ul.WriteString(`<li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">`)
 	ul.WriteString(currentTube)
 	ul.WriteString(` <span class="caret"></span></a><ul class="dropdown-menu">`)
-	var bstkConn *beanstalk.Conn
+	var conn *beanstalk.Conn
 	var err error
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+	if conn, err = dialBeanstalk(server); err != nil {
 		if currentTube != "" {
 			ul.WriteString(`<li><a href="./public">All tubes</a></li>`)
 		}
 		ul.WriteString(`</ul></li>`)
 		return ul.String()
 	}
-	defer bstkConn.Close()
-	tubes, _ := bstkConn.ListTubes()
+	defer conn.Close()
+	tubes, _ := conn.ListTubes()
 	sort.Strings(tubes)
 	for _, v := range tubes {
 		ul.WriteString(`<li><a href="./tube?server=`)
@@ -171,19 +168,12 @@ func dropDownTube(conf SelfConf, server string, currentTube string) string {
 	return ul.String()
 }
 
-// dropEditSettings render a navigation dropdown menu for set preference.
+// dropEditSettings renders the settings modal dialog.
 func dropEditSettings(conf SelfConf) string {
 	var buf strings.Builder
-	var isDisabledJSONDecode, isDisabledJobDataHighlight, isEnabledBase64Decode string
-	if !conf.DisableJSONDecode {
-		isDisabledJSONDecode = `checked="checked"`
-	}
-	if !conf.DisableJobDataHighlight {
-		isDisabledJobDataHighlight = `checked="checked"`
-	}
-	if conf.EnableBase64Decode {
-		isEnabledBase64Decode = `checked="checked"`
-	}
+	isDisabledJSONDecode := checkedAttr(!conf.DisableJSONDecode)
+	isDisabledJobDataHighlight := checkedAttr(!conf.DisableJobDataHighlight)
+	isEnabledBase64Decode := checkedAttr(conf.EnableBase64Decode)
 	buf.WriteString(`<div id="settings" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="settings-label" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button><h4 class="modal-title" id="settings-label">Settings</h4></div><div class="modal-body"><fieldset><div class="form-group"><label for="tubePauseSeconds"><b>Tube pause seconds</b> (<i>-1</i> means the default: <i>3600</i>, <i>0</i> is reserved for un-pause)</label><input class="form-control focused" id="tubePauseSeconds" type="number" value="`)
 	buf.WriteString(strconv.Itoa(conf.TubePauseSeconds))
 	buf.WriteString(`"></div><div class="form-group"><label><b>Auto-refresh interval in milliseconds</b> (Default: <i>500</i>)</label><input class="form-control focused" id="autoRefreshTimeoutMs" type="number" value="`)

@@ -5,10 +5,10 @@ import (
 	"strings"
 )
 
-// tplServerFilterStatsGroups render server filter stats groups checkbox.
+// tplServerFilterStatsGroups renders the server filter stats checkboxes.
 func tplServerFilterStatsGroups(conf SelfConf) []string {
 	stats := []string{"", "", "", ""}
-	buf := strings.Builder{}
+	var buf strings.Builder
 	statsGroupsFilter := [][]map[string]string{binlogStatsGroups, cmdStatsGroups, currentStatsGroups, otherStatsGroups}
 	for k, statsGroups := range statsGroupsFilter {
 		for _, statsGroup := range statsGroups {
@@ -34,9 +34,9 @@ func tplServerFilterStatsGroups(conf SelfConf) []string {
 	return stats
 }
 
-// tplServerFilter render modal popup for select server tube stats column.
+// tplServerFilter renders the server column filter modal.
 func tplServerFilter(conf SelfConf) string {
-	filter := strings.Builder{}
+	var filter strings.Builder
 	stats := tplServerFilterStatsGroups(conf)
 	filter.WriteString(`<div id="filterServer" data-cookie="filter" class="modal fade" tabindex="-1" role="dialog"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button><h3 id="filter-label" class="text-info">Filter columns</h3></div><div class="modal-body"><form class="form-group"><div class="tabbable"><ul class="nav nav-tabs"><li class="active"><a href="#binlog" data-toggle="tab">binlog</a></li><li><a href="#cmd" data-toggle="tab">cmd</a></li><li><a href="#current" data-toggle="tab">current</a></li><li><a href="#other" data-toggle="tab">other</a></li></ul><div class="tab-content"><div class="tab-pane active" id="binlog">`)
 	filter.WriteString(stats[0])
@@ -50,7 +50,7 @@ func tplServerFilter(conf SelfConf) string {
 	return filter.String()
 }
 
-// tplTubeFilter render a modal popup for select job stats of tube.
+// tplTubeFilter renders the tube column filter modal.
 func tplTubeFilter(conf SelfConf) string {
 	var buf, currents, others strings.Builder
 	for k, current := range tubeStatFields {

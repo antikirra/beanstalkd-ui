@@ -43,9 +43,8 @@ var (
 	stderr io.Writer = os.Stderr
 	stdout io.Writer = os.Stdout
 
-	statisticsData       = StatisticsData{RWMutex: new(sync.RWMutex), Server: statisticsDataServer}
-	statisticsDataServer = make(map[string]map[string]map[string]*list.List)
-	notify               = make(chan bool, 1)
+	statisticsData = StatisticsData{RWMutex: new(sync.RWMutex), Server: make(map[string]map[string]map[string]*list.List)}
+	notify         = make(chan bool, 1)
 
 	updateInfo string
 	updateOnce sync.Once
@@ -194,7 +193,6 @@ type SelfConf struct {
 	SearchResultLimit    int
 
 	DisableJSONDecode       bool
-	DisableUnserialization  bool
 	DisableJobDataHighlight bool
 	EnableBase64Decode      bool
 }

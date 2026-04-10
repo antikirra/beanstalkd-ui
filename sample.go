@@ -15,11 +15,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// addSample provide a function to add sample job by parse form with POST
-// method.
+// addSample adds a sample job from an existing beanstalkd job.
 func addSample(conf SelfConf, server string, data url.Values, w http.ResponseWriter) {
 	var err error
-	var key = randToken()
+	key := randToken()
 	var sampleName, body string
 	var sampleTTR int
 	var tubes []string
@@ -102,9 +101,8 @@ func sampleValidate(server string, data url.Values, w http.ResponseWriter) (stri
 	return sampleName, sampleTTR, string(body), nil
 }
 
-// addSampleTube provide a method add a sample job tube in global config
-// variable.
-func addSampleTube(tube string, key string) {
+// addSampleTube associates a sample job key with a tube.
+func addSampleTube(tube, key string) {
 	for k, v := range sampleJobs.Tubes {
 		if v.Name == tube {
 			sampleJobs.Tubes[k].Keys = append(sampleJobs.Tubes[k].Keys, key)
@@ -135,7 +133,7 @@ func checkSampleJobsLocked(name string) bool {
 	return checkSampleJobs(name)
 }
 
-// saveSample provide a method to storage sample job in config file.
+// saveSample persists the sample jobs to the config file.
 func saveSample() error {
 	sampleJobsTOML, err := json.Marshal(sampleJobs)
 	if err != nil {
@@ -226,7 +224,7 @@ func loadSample(server, tube, key string) {
 	)
 }
 
-// newSample provide method to add a sample job.
+// newSample creates a new sample job from form input.
 func newSample(conf SelfConf, server string, f url.Values, w http.ResponseWriter, r *http.Request) {
 	upsertSample(conf, server, "", f, w, r)
 }
@@ -241,7 +239,7 @@ func upsertSample(conf SelfConf, server, existingKey string, f url.Values, w htt
 	var name, body, ttr string
 	var sampleTTR int
 	var tubes []string
-	alert := `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Required fields are not set</span></div>`
+	alert := alertHTML("sjsa", "danger", " Required fields are not set")
 	for k, v := range f {
 		switch k {
 		case "jobdata":
@@ -263,13 +261,13 @@ func upsertSample(conf SelfConf, server, existingKey string, f url.Values, w htt
 	}
 	sampleTTR, err = strconv.Atoi(ttr)
 	if err != nil {
-		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You should give a correct TTR with this sample</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf, "", alertHTML("sjsa", "danger", " You should give a correct TTR with this sample")), server))
 		return
 	}
 	sampleJobsMu.Lock()
 	if checkSampleJobs(name) {
 		sampleJobsMu.Unlock()
-		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> You already have a job with this name</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf, "", alertHTML("sjsa", "danger", " You already have a job with this name")), server))
 		return
 	}
 	for _, t := range tubes {
@@ -285,20 +283,20 @@ func upsertSample(conf SelfConf, server, existingKey string, f url.Values, w htt
 	err = saveSample()
 	sampleJobsMu.Unlock()
 	if err != nil {
-		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf,"", `<div class="alert alert-danger" id="sjsa"><button type="button" class="close" onclick="$('#sjsa').fadeOut('fast');">×</button><span> Save sample job error</span></div>`), server))
+		fmt.Fprint(w, tplSampleJobsManage(conf, tplSampleJobEdit(conf, "", alertHTML("sjsa", "danger", " Save sample job error")), server))
 		return
 	}
 	w.Header().Set("Location", "./sample?action=manageSamples")
 	w.WriteHeader(307)
 }
 
-// editSample provide method to update a sample job.
+// editSample updates an existing sample job.
 func editSample(conf SelfConf, server string, f url.Values, key string, w http.ResponseWriter, r *http.Request) {
 	deleteSamples(key)
 	upsertSample(conf, server, key, f, w, r)
 }
 
-// getSampleJobList render a table of sample job.
+// getSampleJobList renders the sample jobs management table.
 func getSampleJobList(conf SelfConf) string {
 	sampleJobsMu.RLock()
 	defer sampleJobsMu.RUnlock()

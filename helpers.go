@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"net/url"
-
-	"github.com/xuri/aurora/beanstalk"
 )
 
 // tubeActionURL returns a URL for a tube action with the given parameters.
@@ -22,22 +20,19 @@ func serverURL(server string) string {
 	return fmt.Sprintf("./server?server=%s", server)
 }
 
-// listTubesSorted returns sorted tube names for a server, or nil on error.
-func listTubesSorted(server string) []string {
-	conn, err := dialBeanstalk(server)
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	tubes, _ := conn.ListTubes()
-	return tubes
+// alertHTML returns a Bootstrap alert div with a close button.
+func alertHTML(id, class, msg string) string {
+	return fmt.Sprintf(
+		`<div class="alert alert-%s" id="%s">`+
+			`<button type="button" class="close" onclick="$('#%s').fadeOut('fast');">×</button>`+
+			`<span>%s</span></div>`,
+		class, id, id, msg)
 }
 
-// tubeStats returns stats for a single tube, or nil on error.
-func tubeStats(conn *beanstalk.Conn, tube string) map[string]string {
-	stats, err := newTube(conn, tube).Stats()
-	if err != nil {
-		return nil
+// checkedAttr returns `checked="checked"` if condition is true, empty string otherwise.
+func checkedAttr(condition bool) string {
+	if condition {
+		return ` checked="checked"`
 	}
-	return stats
+	return ""
 }

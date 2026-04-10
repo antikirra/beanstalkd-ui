@@ -46,7 +46,6 @@ func readCookies(r *http.Request) SelfConf {
 
 	// Boolean flags.
 	conf.DisableJSONDecode = readBoolCookie(r, "isDisabledJsonDecode")
-	conf.DisableUnserialization = readBoolCookie(r, "isDisabledUnserialization")
 	conf.DisableJobDataHighlight = readBoolCookie(r, "isDisabledJobDataHighlight")
 	conf.EnableBase64Decode = readBoolCookie(r, "isEnabledBase64Decode")
 

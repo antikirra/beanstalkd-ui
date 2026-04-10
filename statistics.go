@@ -12,13 +12,12 @@ import (
 	"time"
 )
 
-// statisticPreferenceSave provide method to save statistics preference
-// settings.
+// statisticPreferenceSave saves the statistics preference settings.
 func statisticPreferenceSave(conf SelfConf, f url.Values, w http.ResponseWriter, r *http.Request) {
 	var err error
 	var collection, frequency string
 	var tubes []string
-	alert := `<div class="alert alert-danger" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Required fields are not set correct</span></div>`
+	alert := alertHTML("sfsa", "danger", " Required fields are not set correct")
 	for k, v := range f {
 		switch k {
 		case "frequency":
@@ -38,16 +37,14 @@ func statisticPreferenceSave(conf SelfConf, f url.Values, w http.ResponseWriter,
 	}
 	err = saveStatisticsConfig(collection, frequency, tubes)
 	if err != nil {
-		fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf,`<div class="alert alert-danger" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Save statistics preference error</span></div>`)))
+		fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf, alertHTML("sfsa", "danger", " Save statistics preference error"))))
 		return
 	}
-	fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf,`<div class="alert alert-success" id="sfsa"><button type="button" class="close" onclick="$('#sfsa').fadeOut('fast');">×</button><span> Statistics preference saved</span></div>`)))
+	fmt.Fprint(w, tplStatisticSetting(conf, tplStatisticEdit(conf, alertHTML("sfsa", "success", " Statistics preference saved"))))
 }
 
-// saveStatisticsConfig validate collection and frequency parameter and send notify
-// to statistic Goroutine that the configuration of statistics preference
-// settings has changed.
-func saveStatisticsConfig(collection string, frequency string, tubes []string) error {
+// saveStatisticsConfig validates and applies the statistics collection settings.
+func saveStatisticsConfig(collection, frequency string, tubes []string) error {
 	c, err := strconv.Atoi(collection)
 	if err != nil {
 		return err

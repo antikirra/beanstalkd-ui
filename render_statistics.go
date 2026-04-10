@@ -3,13 +3,17 @@ package main
 import (
 	"html"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/xuri/aurora/beanstalk"
 )
 
 // tplStatistic renders a statistics overview graphs with Flot by given server
 // and tube.
-func tplStatistic(conf SelfConf, server string, tube string) string {
-	buf := strings.Builder{}
+func tplStatistic(conf SelfConf, server, tube string) string {
+	var buf strings.Builder
 	buf.WriteString(TplHeaderBegin)
 	buf.WriteString(`Statistics overview - `)
 	buf.WriteString(tube)
@@ -39,4 +43,76 @@ func tplStatistic(conf SelfConf, server string, tube string) string {
 	buf.WriteString(url.QueryEscape(tube))
 	buf.WriteString(`",function(data){var obj={};var seriesData=[];obj=jQuery.parseJSON(data);for(var prop in obj){seriesData.push({label:prop,data:$.map(obj[prop],function(i,j){return [[new Date(Date.UTC(i[0],i[1]-1,i[2],i[3],i[4],i[5])).getTime(),i[6]]];})});}var plot=$.plot($("#placeholder"),seriesData,options);plot.setData(seriesData);plot.draw();});}var updateInterval=1;$("#updateInterval").val(updateInterval).change(function(){var v=$(this).val();if(v&&!isNaN(+v)){updateInterval=+v;if(updateInterval<1){updateInterval=1}$(this).val(""+updateInterval)}});function update(){getRandomData();setTimeout(update,updateInterval*1000)};update();</script></body></html>`)
 	return buf.String()
+}
+
+// tplStatisticEdit renders the statistics preference form.
+func tplStatisticEdit(conf SelfConf, alert string) string {
+	var err error
+	var buf, ST, tubeList strings.Builder
+	statsConfigMu.RLock()
+	frequency := statsConfig.Frequency
+	collection := statsConfig.Collection
+	statsConfigMu.RUnlock()
+	if frequency < 1 {
+		frequency = 300
+	}
+	for _, server := range conf.Servers {
+		var conn *beanstalk.Conn
+		tubeList.Reset()
+		if conn, err = dialBeanstalk(server); err != nil {
+			continue
+		}
+		tubes, _ := conn.ListTubes()
+		sort.Strings(tubes)
+		conn.Close()
+		for _, v := range tubes {
+			var checked string
+			statisticsData.RLock()
+			s, ok := statisticsData.Server[server]
+			if ok {
+				_, ok := s[v]
+				if ok {
+					checked = `checked="checked"`
+				}
+			}
+			statisticsData.RUnlock()
+			tubeList.WriteString(`<div class="control-group"><div class="controls"><label class="checkbox-inline"><input type="checkbox" name="tubes[`)
+			tubeList.WriteString(server)
+			tubeList.WriteString(`:`)
+			tubeList.WriteString(v)
+			tubeList.WriteString(`]" value="1" `)
+			tubeList.WriteString(checked)
+			tubeList.WriteString(`>`)
+			tubeList.WriteString(v)
+			tubeList.WriteString(`</label></div></div>`)
+		}
+		ST.WriteString(`<div class="pull-left" style="padding-right: 35px;">`)
+		ST.WriteString(server)
+		ST.WriteString(`<blockquote>`)
+		ST.WriteString(tubeList.String())
+		ST.WriteString(`</blockquote></div>`)
+	}
+
+	buf.WriteString(`<form name="statisticsPreference" action="./statistics?action=save" method="POST"><div class="clearfix form-group"><div class="pull-left"><h4 class="text-info">Statistics preference</h4></div></div><div class="form-group"><fieldset>`)
+	buf.WriteString(alert)
+	buf.WriteString(`<div class="control-group"><label class="control-label"><b>Collection record number of each server or tube (Default: <i>0</i>, reserved for not statistics, recommended value: <i>300</i>) *</b></label><div class="controls form-group"><input class="form-control input-sm focused" name="collection" type="number" min="0" style="width: 15em;" required="" value="`)
+	buf.WriteString(strconv.Itoa(collection))
+	buf.WriteString(`" autocomplete="off"></div></div><div class="control-group"><label class="control-label"><b>Acquisition frequency seconds of each server or tube (Default: <i>300</i>, minimum: <i>1</i>) *</b></label><div class="controls form-group"><input class="form-control input-sm" name="frequency" type="number" min="1" style="width: 15em;" required="" value="`)
+	buf.WriteString(strconv.Itoa(frequency))
+	buf.WriteString(`" autocomplete="off"></div></div></fieldset><div class="clearfix"><label class="control-label"><b>Available on tubes *</b></label><br/>`)
+	buf.WriteString(ST.String())
+	buf.WriteString(`</div></div><div><input type="submit" class="btn btn-success" value="Save"/></div></form>`)
+	return buf.String()
+}
+
+// tplStatisticSetting renders the statistics preferences page.
+func tplStatisticSetting(conf SelfConf, content string) string {
+	return renderPage(conf, pageParams{
+		title:   "Statistics preference",
+		navbar:  dropDownServer(conf, ""),
+		toolbox: toolboxManageSamples + toolboxStatsPref,
+		refresh: "autoRefresh",
+		content: content,
+		jsURL:   `var url = "./sample";`,
+	})
 }

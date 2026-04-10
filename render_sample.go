@@ -9,8 +9,8 @@ import (
 	"github.com/xuri/aurora/beanstalk"
 )
 
-// tplSampleJobEdit render a sample job edit form.
-func tplSampleJobEdit(conf SelfConf, key string, alert string) string {
+// tplSampleJobEdit renders the sample job edit form.
+func tplSampleJobEdit(conf SelfConf, key, alert string) string {
 	var err error
 	var buf, action, title, name, savedTo, saveTo, data, ST, tubeList, TTR strings.Builder
 	if key == "" {
@@ -44,14 +44,14 @@ func tplSampleJobEdit(conf SelfConf, key string, alert string) string {
 	}
 
 	for _, server := range conf.Servers {
-		var bstkConn *beanstalk.Conn
+		var conn *beanstalk.Conn
 		tubeList.Reset()
-		if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+		if conn, err = dialBeanstalk(server); err != nil {
 			continue
 		}
-		tubes, _ := bstkConn.ListTubes()
+		tubes, _ := conn.ListTubes()
 		sort.Strings(tubes)
-		bstkConn.Close()
+		conn.Close()
 		for _, v := range tubes {
 			var checked string
 			for _, j := range sampleJobs.Jobs {
@@ -101,4 +101,16 @@ func tplSampleJobEdit(conf SelfConf, key string, alert string) string {
 	buf.WriteString(data.String())
 	buf.WriteString(`</textarea></div></div><div><input type="submit" class="btn btn-success" value="Save"/></div></form>`)
 	return buf.String()
+}
+
+// tplSampleJobsManage renders the sample job management page.
+func tplSampleJobsManage(conf SelfConf, sampleList, currentServer string) string {
+	return renderPage(conf, pageParams{
+		title:   "Manage samples",
+		navbar:  dropDownServer(conf, currentServer),
+		toolbox: toolboxManageSamples + toolboxStatsPref,
+		refresh: "autoRefresh",
+		content: sampleList,
+		jsURL:   `var url = "./sample";`,
+	})
 }
