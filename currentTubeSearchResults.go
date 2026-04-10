@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -47,7 +36,7 @@ func currentTubeSearchResults(server string, tube string, limit string, searchSt
 		tr.WriteString(server)
 		tr.WriteString(`&tube=`)
 		tr.WriteString(url.QueryEscape(tube))
-		tr.WriteString(`&action=addSample"><i class="glyphicon glyphicon-plus glyphicon-white"></i> Add to samples </a></li><li role="presentation"><a role="menuitem" href="?server=`)
+		tr.WriteString(`&action=addSample"><i class="glyphicon glyphicon-plus glyphicon-white"></i> Add to samples </a></li><li role="presentation"><a role="menuitem" data-method="post" href="?server=`)
 		tr.WriteString(server)
 		tr.WriteString(`&tube=`)
 		tr.WriteString(url.QueryEscape(tube))
@@ -55,7 +44,7 @@ func currentTubeSearchResults(server string, tube string, limit string, searchSt
 		tr.WriteString(job.State)
 		tr.WriteString(`&action=deleteJob&jobid=`)
 		tr.WriteString(strconv.Itoa(int(job.ID)))
-		tr.WriteString(`"><i class="glyphicon glyphicon-remove glyphicon-white"></i> Delete</a> </li><li role="presentation"><a role="menuitem" href="?server=`)
+		tr.WriteString(`"><i class="glyphicon glyphicon-remove glyphicon-white"></i> Delete</a> </li><li role="presentation"><a role="menuitem" data-method="post" href="?server=`)
 		tr.WriteString(server)
 		tr.WriteString(`&tube=`)
 		tr.WriteString(url.QueryEscape(tube))

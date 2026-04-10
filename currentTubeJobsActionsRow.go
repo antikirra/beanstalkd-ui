@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -33,13 +22,14 @@ func currentTubeJobsActionsRow(server string, tube string) string {
 	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
 		return ``
 	}
+	defer bstkConn.Close()
 	tubeStats := &beanstalk.Tube{
 		Conn: bstkConn,
 		Name: tube,
 	}
 	statsMap, _ := tubeStats.Stats()
 	if statsMap["pause-time-left"] == "0" {
-		pauseTimeLeft.WriteString(`<a class="btn btn-default btn-sm" href="?server=`)
+		pauseTimeLeft.WriteString(`<a class="btn btn-default btn-sm" data-method="post" href="?server=`)
 		pauseTimeLeft.WriteString(server)
 		pauseTimeLeft.WriteString(`&tube=`)
 		pauseTimeLeft.WriteString(url.QueryEscape(tube))
@@ -47,7 +37,7 @@ func currentTubeJobsActionsRow(server string, tube string) string {
 		pauseTimeLeft.WriteString(pause)
 		pauseTimeLeft.WriteString(` seconds"><i class="glyphicon glyphicon-pause"></i> Pause tube</a>`)
 	} else {
-		pauseTimeLeft.WriteString(`<a class="btn btn-default btn-sm" href="?server=`)
+		pauseTimeLeft.WriteString(`<a class="btn btn-default btn-sm" data-method="post" href="?server=`)
 		pauseTimeLeft.WriteString(server)
 		pauseTimeLeft.WriteString(`&tube=`)
 		pauseTimeLeft.WriteString(url.QueryEscape(tube))
@@ -55,12 +45,11 @@ func currentTubeJobsActionsRow(server string, tube string) string {
 		pauseTimeLeft.WriteString(statsMap["pause-time-left"])
 		pauseTimeLeft.WriteString(`"><i class="glyphicon glyphicon-play"></i> Unpause tube</a>`)
 	}
-	bstkConn.Close()
-	buf.WriteString(`<section id="actionsRow"><b>Actions:</b> &nbsp;<a class="btn btn-default btn-sm" href="?server=`)
+	buf.WriteString(`<section id="actionsRow"><b>Actions:</b> &nbsp;<a class="btn btn-default btn-sm" data-method="post" href="?server=`)
 	buf.WriteString(server)
 	buf.WriteString(`&tube=`)
 	buf.WriteString(url.QueryEscape(tube))
-	buf.WriteString(`&action=kick&count=1"><i class="glyphicon glyphicon-forward"></i> Kick 1 job</a> <form method="GET"><div class="btn-group" role="group"><button type="submit" class="btn btn-default btn-sm" style="margin-right: -2px;"><i class="glyphicon glyphicon-fast-forward"></i> Kick more </button><input type="hidden" name="server" value="`)
+	buf.WriteString(`&action=kick&count=1"><i class="glyphicon glyphicon-forward"></i> Kick 1 job</a> <form method="POST"><div class="btn-group" role="group"><button type="submit" class="btn btn-default btn-sm" style="margin-right: -2px;"><i class="glyphicon glyphicon-fast-forward"></i> Kick more </button><input type="hidden" name="server" value="`)
 	buf.WriteString(server)
 	buf.WriteString(`"><input type="hidden" name="tube" value="`)
 	buf.WriteString(url.QueryEscape(tube))
@@ -88,7 +77,7 @@ func currentTubeJobsActionsRowSample(server string, tube string) string {
 				if j.Key != k {
 					continue
 				}
-				sample.WriteString(`<li><a href="?server=`)
+				sample.WriteString(`<li><a data-method="post" href="?server=`)
 				sample.WriteString(server)
 				sample.WriteString(`&tube=`)
 				sample.WriteString(url.QueryEscape(tube))

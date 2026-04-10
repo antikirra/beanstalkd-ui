@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -19,34 +8,50 @@ import (
 	"sync"
 )
 
-// Define the default configuration and HTML header template.
+// Default beanstalkd job parameters.
 const (
-	ConfigFileTemplate      = "servers = []\r\nlisten = \"127.0.0.1:3000\"\r\nversion = 2.2\r\n\r\n[openpage]\r\nenabled = true\r\n\r\n[auth]\r\nenabled = false\r\npassword = \"password\"\r\nusername = \"admin\"\r\n\r\n[sample]\r\nstorage = \"{}\""
 	DefaultDelay            = 0
-	DefaultPriority         = 1024 // most urgent: 0, least urgent: 4294967295.
-	DefaultTTR              = 60   // 1 minute
-	DefaultTubePauseSeconds = 3600
-	TplHeaderBegin          = `<!DOCTYPE html><html lang="en-US"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"><![endif]--><meta name="description" content="Beanstalkd Console"><meta name="keywords" content="Beanstalkd Console, beanstalkd, console"><meta content="always" name="referrer"><meta name="language" content="en-US"><meta name="category" content="Tools"><meta name="summary" content="Beanstalkd Console"><meta name="apple-mobile-web-app-capable" content="yes"/><link rel="copyright" href="http://www.opensource.org/licenses/mit-license.php"/><link rel="icon" sizes="32x32" href="./images/aurora-32x32.ico"><link rel="apple-touch-icon" sizes="180x180" href="./images/apple-touch-icon-180x180-precomposed.png"><link rel="apple-touch-icon" sizes="152x152" href="./images/apple-touch-icon-152x152-precomposed.png"><link rel="apple-touch-icon" sizes="144x144" href="./images/apple-touch-icon-144x144-precomposed.png"><link rel="apple-touch-icon" sizes="120x120" href="./images/apple-touch-icon-120x120-precomposed.png"><link rel="apple-touch-icon" sizes="114x114" href="./images/apple-touch-icon-114x114-precomposed.png"><link rel="apple-touch-icon" sizes="76x76" href="./images/apple-touch-icon-76x76-precomposed.png"><link rel="apple-touch-icon" sizes="72x72" href="./images/apple-touch-icon-72x72-precomposed.png"><link rel="apple-touch-icon" href="./images/apple-touch-icon-precomposed-57x57.png"><title>`
-	TplHeaderEnd            = ` Beanstalkd Console</title><!-- Bootstrap core CSS --><link href="./assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet"><link href="./css/customer.css" rel="stylesheet"><link href="./highlight/styles/magula.css" rel="stylesheet"><!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries --><!--[if lt IE 9]><script src="./js/libs/html5shiv/3.7.0/html5shiv.js"></script><script src="./js/libs/respond.js/1.4.2/respond.min.js"></script><![endif]--></head><body>`
-	TplLinks                = `<li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown"> Links <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="https://github.com/beanstalkd" target="_blank">Beanstalkd (GitHub)</a></li><li><a href="https://github.com/xuri/aurora" target="_blank">Aurora (GitHub)</a></li></ul></li>`
-	TplNoScript             = `<noscript><div class="container"><div class="alert alert-danger" role="alert">Aurora beanstalkd console requires JavaScript supports, please refresh after enable browser JavaScript support.</div></div></noscript>`
-	UpdateURL               = `https://api.github.com/repos/xuri/aurora/tags`
+	DefaultPriority  uint32 = 1024 // most urgent: 0, least urgent: 4294967295.
+	DefaultTTR              = 60   // seconds
+	DefaultTubePauseSeconds = 3600 // seconds
 	Version                 = 2.2
+	UpdateURL               = "https://api.github.com/repos/xuri/aurora/tags"
 )
 
-// Define server and tube stats fields.
+// ConfigFileTemplate is the default config file content.
+const ConfigFileTemplate = "servers = []\r\nlisten = \"127.0.0.1:3000\"\r\nversion = 2.2\r\n\r\n[openpage]\r\nenabled = true\r\n\r\n[auth]\r\nenabled = false\r\npassword = \"password\"\r\nusername = \"admin\"\r\n\r\n[sample]\r\nstorage = \"{}\""
+
+// HTML layout constants.
+const (
+	TplHeaderBegin = `<!DOCTYPE html><html lang="en-US"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><!--[if IE]><meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"><![endif]--><meta name="description" content="Beanstalkd Console"><meta name="keywords" content="Beanstalkd Console, beanstalkd, console"><meta content="always" name="referrer"><meta name="language" content="en-US"><meta name="category" content="Tools"><meta name="summary" content="Beanstalkd Console"><meta name="apple-mobile-web-app-capable" content="yes"/><link rel="copyright" href="http://www.opensource.org/licenses/mit-license.php"/><link rel="icon" sizes="32x32" href="./images/aurora-32x32.ico"><link rel="apple-touch-icon" sizes="180x180" href="./images/apple-touch-icon-180x180-precomposed.png"><link rel="apple-touch-icon" sizes="152x152" href="./images/apple-touch-icon-152x152-precomposed.png"><link rel="apple-touch-icon" sizes="144x144" href="./images/apple-touch-icon-144x144-precomposed.png"><link rel="apple-touch-icon" sizes="120x120" href="./images/apple-touch-icon-120x120-precomposed.png"><link rel="apple-touch-icon" sizes="114x114" href="./images/apple-touch-icon-114x114-precomposed.png"><link rel="apple-touch-icon" sizes="76x76" href="./images/apple-touch-icon-76x76-precomposed.png"><link rel="apple-touch-icon" sizes="72x72" href="./images/apple-touch-icon-72x72-precomposed.png"><link rel="apple-touch-icon" href="./images/apple-touch-icon-precomposed-57x57.png"><title>`
+	TplHeaderEnd   = ` Beanstalkd Console</title><!-- Bootstrap core CSS --><link href="./assets/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet"><link href="./css/customer.css" rel="stylesheet"><link href="./highlight/styles/magula.css" rel="stylesheet"><!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries --><!--[if lt IE 9]><script src="./js/libs/html5shiv/3.7.0/html5shiv.js"></script><script src="./js/libs/respond.js/1.4.2/respond.min.js"></script><![endif]--></head><body>`
+	TplLinks       = `<li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown"> Links <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="https://github.com/beanstalkd" target="_blank">Beanstalkd (GitHub)</a></li><li><a href="https://github.com/xuri/aurora" target="_blank">Aurora (GitHub)</a></li></ul></li>`
+	TplNoScript    = `<noscript><div class="container"><div class="alert alert-danger" role="alert">Aurora beanstalkd console requires JavaScript supports, please refresh after enable browser JavaScript support.</div></div></noscript>`
+)
+
+// Global application state.
 var (
-	pubConf              PubConfig
-	sampleJobs           SampleJobs
-	selfConf             SelfConf
-	Stderr               io.Writer = os.Stderr // Stderr is the io.Writer to which executed commands write standard error.
-	Stdout               io.Writer = os.Stdout // Stdout is the io.Writer to which executed commands write standard output.
-	ConfigFile                     = `aurora.toml`
-	statisticsData                 = StatisticsData{new(sync.RWMutex), statisticsDataServer}
-	statisticsDataServer           = make(map[string]map[string]map[string]*list.List)
-	notify                         = make(chan bool, 1)
-	updateInfo                     = "uncheck"
-	// Server filter columns.
+	pubConf    PubConfig
+	sampleJobs SampleJobs
+	selfConf   SelfConf
+	configFile = "aurora.toml"
+
+	sampleJobsMu sync.RWMutex
+	selfConfMu   sync.RWMutex
+
+	stderr io.Writer = os.Stderr
+	stdout io.Writer = os.Stdout
+
+	statisticsData       = StatisticsData{RWMutex: new(sync.RWMutex), Server: statisticsDataServer}
+	statisticsDataServer = make(map[string]map[string]map[string]*list.List)
+	notify               = make(chan bool, 1)
+
+	updateInfo string
+	updateOnce sync.Once
+)
+
+// Server stats filter columns.
+var (
 	binlogStatsGroups = []map[string]string{
 		{"binlog-current-index": "the index of the current binlog file being written to. If binlog is not active this value will be 0"},
 		{"binlog-max-size": "the maximum size in bytes a binlog file is allowed to get before a new binlog file is opened"},
@@ -90,7 +95,7 @@ var (
 	}
 	otherStatsGroups = []map[string]string{
 		{"hostname": "the hostname of the machine as determined by uname"},
-		{"id": "a random id string for this server process}, generated when emap[string]string{ach beanstalkd process starts"},
+		{"id": "a random id string for this server process, generated when each beanstalkd process starts"},
 		{"job-timeouts": "the cumulative count of times a job has timed out"},
 		{"max-job-size": "the maximum number of bytes in a job"},
 		{"pid": "the process id of the server"},
@@ -101,7 +106,6 @@ var (
 		{"uptime": "the number of seconds since this server process started running"},
 		{"version": "the version string of the server"},
 	}
-	// Tube filter columns.
 	tubeStatFields = []map[string]string{
 		{"current-jobs-urgent": "number of ready jobs with priority &lt; 1024 in this tube"},
 		{"current-jobs-ready": "number of jobs in the ready queue in this tube"},
@@ -126,10 +130,10 @@ var (
 	jobStatsOrder = []string{"id", "tube", "state", "pri", "age", "delay", "ttr", "time-left", "file", "reserves", "timeouts", "releases", "buries", "kicks"}
 )
 
-// ViewFunc define HTTP Basic Auth type of return function.
+// ViewFunc is the handler function type used with basicAuth middleware.
 type ViewFunc func(http.ResponseWriter, *http.Request)
 
-// PubConfig define struct for prase config file.
+// PubConfig holds the application configuration parsed from the TOML file.
 type PubConfig struct {
 	Servers  []string `toml:"servers"`
 	Listen   string   `toml:"listen"`
@@ -138,22 +142,22 @@ type PubConfig struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"openpage"`
 	Auth struct {
-		Enabled  bool   `toml:"enabled"`
 		Password string `toml:"password"`
 		Username string `toml:"username"`
+		Enabled  bool   `toml:"enabled"`
 	} `toml:"auth"`
 	Sample struct {
 		Storage string `toml:"storage"`
 	} `toml:"sample"`
 }
 
-// SampleJobs define beanstalkd sample jobs storage struct.
+// SampleJobs holds the collection of sample jobs and their tube associations.
 type SampleJobs struct {
 	Jobs  []SampleJob  `json:"jobs"`
 	Tubes []SampleTube `json:"tubes"`
 }
 
-// SampleJob define beanstalkd sample job storage struct.
+// SampleJob represents a saved job template.
 type SampleJob struct {
 	Key   string   `json:"key"`
 	Name  string   `json:"name"`
@@ -162,44 +166,47 @@ type SampleJob struct {
 	TTR   int      `json:"ttr"`
 }
 
-// SampleTube define beanstalkd sample job's tube storage struct.
+// SampleTube maps a tube name to sample job keys available on that tube.
 type SampleTube struct {
 	Name string   `json:"name"`
 	Keys []string `json:"keys"`
 }
 
-// StatisticsData define the data struct for storage statistics data.
+// StatisticsData holds time-series statistics data protected by a mutex.
 type StatisticsData struct {
 	*sync.RWMutex
 	Server map[string]map[string]map[string]*list.List
 }
 
-// SelfConf define fields storage in cookies and statistics parameter storage in
-// RAM.
+// SelfConf holds per-request user preferences loaded from cookies and
+// statistics parameters stored in memory.
 type SelfConf struct {
-	Filter                     []string
-	Servers                    []string
-	TubeFilters                []string
-	TubeSelector               string
-	TubePauseSeconds           int
-	IsDisabledJSONDecode       int
-	IsDisabledUnserialization  int
-	IsDisabledJobDataHighlight int
-	IsEnabledBase64Decode      int
-	AutoRefreshTimeoutMs       int
-	SearchResultLimit          int
-	StatisticsCollection       int
-	StatisticsFrequency        int
+	Filter      []string
+	Servers     []string
+	TubeFilters []string
+
+	TubeSelector string
+
+	TubePauseSeconds     int
+	AutoRefreshTimeoutMs int
+	SearchResultLimit    int
+	StatisticsCollection int
+	StatisticsFrequency  int
+
+	DisableJSONDecode       bool
+	DisableUnserialization  bool
+	DisableJobDataHighlight bool
+	EnableBase64Decode      bool
 }
 
-// SearchResult define the search result of jobs in tube.
+// SearchResult holds a single job found by tube search.
 type SearchResult struct {
 	ID    uint64
 	State string
 	Data  string
 }
 
-// UpdateTags define the tag of versions control.
+// UpdateTags is the response structure from the GitHub tags API.
 type UpdateTags []struct {
 	Name string `json:"name"`
 }

@@ -1,17 +1,9 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // tplServerFilterStatsGroups render server filter stats groups checkbox.
 func tplServerFilterStatsGroups() []string {
@@ -22,7 +14,7 @@ func tplServerFilterStatsGroups() []string {
 		for _, statsGroup := range statsGroups {
 			for property, description := range statsGroup {
 				status := ""
-				if checkInSlice(selfConf.Filter, property) {
+				if slices.Contains(selfConf.Filter, property) {
 					status = `checked`
 				}
 				buf.Reset()
@@ -67,7 +59,7 @@ func tplTubeFilter() string {
 		}
 		for property, description := range current {
 			status := ""
-			if checkInSlice(selfConf.TubeFilters, property) {
+			if slices.Contains(selfConf.TubeFilters, property) {
 				status = `checked`
 			}
 			currents.WriteString(`<div class="form-group"><div class="checkbox"><label class="checkbox"><input type="checkbox" name="`)
@@ -88,7 +80,7 @@ func tplTubeFilter() string {
 		}
 		for property, description := range other {
 			status := ""
-			if checkInSlice(selfConf.TubeFilters, property) {
+			if slices.Contains(selfConf.TubeFilters, property) {
 				status = `checked`
 			}
 			others.WriteString(`<div class="form-group"><div class="checkbox"><label class="checkbox"><input type="checkbox" name="`)

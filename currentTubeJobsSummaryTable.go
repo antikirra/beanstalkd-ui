@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -39,6 +28,7 @@ func currentTubeJobsSummaryTable(server string, tube string) string {
 		buf.WriteString(`</tr></thead><tbody></tbody></table></div></div></section>`)
 		return buf.String()
 	}
+	defer bstkConn.Close()
 	tubes, _ := bstkConn.ListTubes()
 	for _, v := range selfConf.TubeFilters {
 		th.WriteString(`<th>`)
@@ -76,7 +66,6 @@ func currentTubeJobsSummaryTable(server string, tube string) string {
 		tr.WriteString(`</tr>`)
 		td.Reset()
 	}
-	bstkConn.Close()
 	template.WriteString(`<section id="summaryTable"><div class="row"><div class="col-sm-12"><table class="table table-striped table-hover"><thead><tr><th>name</th>`)
 	template.WriteString(th.String())
 	template.WriteString(`</tr></thead><tbody> `)

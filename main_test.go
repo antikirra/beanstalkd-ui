@@ -33,16 +33,25 @@ enabled = true
 
 var (
 	once sync.Once
-	urls = []string{
+	// URLs that use GET method (read-only operations).
+	getURLs = []string{
 		"/",                      // Static files server
 		"/public",                // Server list
 		"/server?server=" + bstk, // Server status
-		"/index?server=&action=reloader&tplMain=ajax&tplBlock=serversList",                                                                 // Reload server status
+		"/index?server=&action=reloader&tplMain=ajax&tplBlock=serversList",           // Reload server status
+		"/server?server=" + bstk + "&action=reloader&tplMain=ajax&tplBlock=allTubes", // Reload tube status
+		"/tube?server=" + bstk + "&tube=default",                                     // Tube status
+		"/tube?server=" + bstk + "&tube=default1",                                    // Tube status with no exits tube
+		"/tube?server=not_exist_server_addr&tube=default",                            // Tube status with no exits server
+		"/tube?server=" + bstk + "&tube=aurora_test&state=&action=search&limit=25&searchStr=t",     // Search job
+		"/tube?server=" + bstk + "&tube=aurora_test&state=&action=search&limit=25&searchStr=match", // Search job with not match string
+		"/sample?action=manageSamples",                                                             // Manage sample jobs
+		"/sample?action=newSample",                                                                 // New sample job
+		"/sample?action=editSample&key=xxx",                                                        // Edit sample job
+	}
+	// URLs that use POST method (state-changing operations).
+	postURLs = []string{
 		"/serversRemove?action=serversRemove&removeServer=" + bstk,                                                                         // Remove server
-		"/server?server=" + bstk + "&action=reloader&tplMain=ajax&tplBlock=allTubes",                                                       // Reload tube status
-		"/tube?server=" + bstk + "&tube=default",                                                                                           // Tube status
-		"/tube?server=" + bstk + "&tube=default1",                                                                                          // Tube status with no exits tube
-		"/tube?server=not_exist_server_addr&tube=default",                                                                                  // Tube status with no exits server
 		"/tube?server=" + bstk + "&tube=default&action=pause&count=-1",                                                                     // Pause tube
 		"/tube?server=" + bstk + "&tube=default&action=pause&count=0",                                                                      // Pause tube
 		"/tube?server=not_exist_server_addr&tube=default&action=pause&count=0",                                                             // Pause tube with no exits server
@@ -52,24 +61,21 @@ var (
 		"/tube?server=" + bstk + "&tube=default&state=ready&action=kickJob&jobid=badID",                                                    // Kick job by given ID with no exits ID
 		"/tube?server=not_exist_server_addr&tube=default&state=ready&action=kickJob&jobid=1",                                               // Kick job by given ID with no exits server
 		"/tube?server=" + bstk + "&tube=default&action=loadSample&key=97ec882fd75855dfa1b4bd00d4a367d4&redirect=tube&action=manageSamples", // Load sample job by given key
-		"/tube?server=" + bstk + "&tube=aurora_test&state=&action=search&limit=25&searchStr=t",                                             // Search job
-		"/tube?server=" + bstk + "&tube=aurora_test&state=&action=search&limit=25&searchStr=match",                                         // Search job with not match string
 		"/tube?server=" + bstk + "&tube=aurora_test&action=moveJobsTo&destState=buried&state=ready",                                        // Move job from ready to buried state
 		"/tube?server=not_exist_server_addr&tube=aurora_test&action=moveJobsTo&destState=buried&state=ready",                               // Move job from ready to buried state with no exits server
 		"/tube?server=" + bstk + "&tube=aurora_test&action=moveJobsTo&destState=&state=ready",                                              // Move job from ready to buried state without destState
 		"/tube?server=" + bstk + "&tube=aurora_test&action=moveJobsTo&destTube=aurora_test&state=buried",                                   // Move job from buried to ready state
 		"/tube?server=not_exist_server_addr&tube=aurora_test&action=moveJobsTo&destTube=aurora_test&state=buried",                          // Move job from buried to ready state with no exits server
-		"/sample?action=manageSamples",                                                                                                     // Manage sample jobs
 		"/tube?server=" + bstk + "&tube=auto&action=loadSample&key=xxx&redirect=tube?action=manageSamples",                                 // Kick job to tubes
-		"/sample?action=newSample",          // New sample job
-		"/sample?action=editSample&key=xxx", // Edit sample job
-		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteJob&jobid=1",          // Delete a job
-		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteJob&jobid=badID",      // Delete a no exists job
-		"/tube?server=not_exist_server_addr&tube=default&state=ready&action=deleteJob&jobid=1", // Delete a job with no exits server
-		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteAll&count=1",          // Delete all jobs in empty tube
-		"/tube?server=" + bstk + "&tube=aurora_test&state=ready&action=deleteAll&count=1",      // Delete all jobs
-		"/tube?server=not_exist_server_addr&tube=default&state=ready&action=deleteAll&count=1", // Delete all jobs with no exits server
+		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteJob&jobid=1",                                                      // Delete a job
+		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteJob&jobid=badID",                                                  // Delete a no exists job
+		"/tube?server=not_exist_server_addr&tube=default&state=ready&action=deleteJob&jobid=1",                                             // Delete a job with no exits server
+		"/tube?server=" + bstk + "&tube=default&state=ready&action=deleteAll&count=1",                                                      // Delete all jobs in empty tube
+		"/tube?server=" + bstk + "&tube=aurora_test&state=ready&action=deleteAll&count=1",                                                  // Delete all jobs
+		"/tube?server=not_exist_server_addr&tube=default&state=ready&action=deleteAll&count=1",                                             // Delete all jobs with no exits server
 	}
+	// Combined for backward compat.
+	urls = append(getURLs, postURLs...)
 )
 
 func testSetup() {
@@ -98,7 +104,7 @@ func testSetup() {
 	go func() {
 		http.ListenAndServe(pubConf.Listen, nil)
 	}()
-	go statistic()
+	go statisticsCollector()
 }
 
 func TestIndex(t *testing.T) {
@@ -150,14 +156,25 @@ func TestIndex(t *testing.T) {
 	if err != nil {
 		t.Log(err)
 	}
-	for _, v := range urls {
+	cookie := http.Cookie{Name: "beansServers", Value: `127.0.0.1%3A11300%3B127.0.0.1%3A11300%3B127.0.0.1%3A11301%3B`}
+	var client = &http.Client{}
+	for _, v := range getURLs {
 		req, err := http.NewRequest("GET", server+v, nil)
 		if err != nil {
 			t.Log(err)
 		}
-		cookie := http.Cookie{Name: "beansServers", Value: `127.0.0.1%3A11300%3B127.0.0.1%3A11300%3B127.0.0.1%3A11301%3B`}
 		req.AddCookie(&cookie)
-		var client = &http.Client{}
+		_, err = client.Do(req)
+		if err != nil {
+			t.Log(err)
+		}
+	}
+	for _, v := range postURLs {
+		req, err := http.NewRequest("POST", server+v, nil)
+		if err != nil {
+			t.Log(err)
+		}
+		req.AddCookie(&cookie)
 		_, err = client.Do(req)
 		if err != nil {
 			t.Log(err)
@@ -355,7 +372,7 @@ func TestBase64Decode(t *testing.T) {
 
 func TestDropEditSettings(t *testing.T) {
 	once.Do(testSetup)
-	selfConf.IsEnabledBase64Decode = 1
+	selfConf.EnableBase64Decode = true
 	dropEditSettings()
 }
 
@@ -378,7 +395,7 @@ func TestAddSampleTube(t *testing.T) {
 	once.Do(testSetup)
 	addSampleTube(`aurora_test_2`, `test`)
 	getSampleJobList()
-	getSampleJobNameByKey(`97ec882fd75855dfa1b4bd00d4a367d4`)
+	findSampleJobLocked(`97ec882fd75855dfa1b4bd00d4a367d4`)
 	loadSample(``, `default`, `97ec882fd75855dfa1b4bd00d4a367d4`)
 	loadSample(bstk, `default`, `97ec882fd75855dfa1b4bd00d4a367d4`)
 	deleteSamples(`97ec882fd75855dfa1b4bd00d4a367d4`)
@@ -443,7 +460,7 @@ func TestStatistic(t *testing.T) {
 	}
 	time.Sleep(10 * time.Second)
 	tplStatistic(bstk, "default")
-	statisticWaitress(bstk, "default")
+	statisticsJSON(bstk, "default")
 	tplStatisticEdit("")
 	tplStatisticSetting("")
 	for _, v := range testURLs {
@@ -480,8 +497,8 @@ func TestStatistic(t *testing.T) {
 		}
 	}
 	defer resp.Body.Close()
-	statisticCashier("not_int", "", []string{})
-	statisticCashier("1", "not_int", []string{})
+	saveStatisticsConfig("not_int", "", []string{})
+	saveStatisticsConfig("1", "not_int", []string{})
 	selfConf.StatisticsFrequency = -1
 	tplStatisticEdit("")
 	t.SkipNow()

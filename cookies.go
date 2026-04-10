@@ -1,21 +1,9 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
 	"net"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -23,6 +11,7 @@ import (
 // readCookies read config property storage in cookie.
 func readCookies(r *http.Request) {
 	var servers, filters, tubeFilters []string
+	var validServers []string
 	var tubeSelectorValue string
 	// Read servers in cookies
 	beansServers, err := r.Cookie("beansServers")
@@ -35,29 +24,23 @@ func readCookies(r *http.Request) {
 	if err == nil {
 		filterValue, _ := url.QueryUnescape(filter.Value)
 		filters = strings.Split(filterValue, `,`)
-		filters = removeArrayDuplicates(removeArrayEmpty(filters))
+		filters = compactUnique(filters)
 	} else {
 		filters = []string{"current-connections", "current-jobs-buried", "current-jobs-delayed", "current-jobs-ready", "current-jobs-reserved", "current-jobs-urgent", "current-tubes"}
 	}
+	// Start from config servers, not from stale global state.
+	validServers = append(validServers, pubConf.Servers...)
 	for _, v := range servers {
-		_, err := url.ParseRequestURI(v)
-		// Server address should be a valid URL or dotted decimal IPv4 or IPv6 form.
-		if err != nil && net.ParseIP(strings.Split(v, `:`)[0]) == nil {
-			continue
+		if isValidServer(v) {
+			validServers = append(validServers, v)
 		}
-		// Server port should be an integer.
-		_, err = strconv.Atoi(strings.Split(v, `:`)[1])
-		if err != nil {
-			continue
-		}
-		selfConf.Servers = append(selfConf.Servers, v)
 	}
 	// Read Tube Filter in cookies
 	tubeFilter, err := r.Cookie("tubefilter")
 	if err == nil {
 		tubeFilterValue, _ := url.QueryUnescape(tubeFilter.Value)
 		tubeFilters = strings.Split(tubeFilterValue, `,`)
-		tubeFilters = removeArrayDuplicates(removeArrayEmpty(tubeFilters))
+		tubeFilters = compactUnique(tubeFilters)
 	} else {
 		tubeFilters = []string{"current-jobs-urgent", "current-jobs-ready", "current-jobs-reserved", "current-jobs-delayed", "current-jobs-buried", "total-jobs"}
 	}
@@ -68,46 +51,81 @@ func readCookies(r *http.Request) {
 		tubeSelectorValue = tubeSelector.Value
 	}
 
-	selfConf.Servers = removeArrayDuplicates(removeArrayEmpty(selfConf.Servers))
-	sort.Strings(selfConf.Servers)
+	validServers = compactUnique(validServers)
+
+	selfConfMu.Lock()
+	selfConf.Servers = validServers
 	selfConf.Filter = filters
 	selfConf.TubeFilters = tubeFilters
-	selfConf.IsDisabledJSONDecode = readIntCookie(r, `isDisabledJsonDecode`, 0)
-	selfConf.IsDisabledUnserialization = readIntCookie(r, `isDisabledUnserialization`, 0)
-	selfConf.IsDisabledJobDataHighlight = readIntCookie(r, `isDisabledJobDataHighlight`, 0)
-	selfConf.IsEnabledBase64Decode = readIntCookie(r, `isEnabledBase64Decode`, 0)
+	selfConf.DisableJSONDecode = readBoolCookie(r, "isDisabledJsonDecode")
+	selfConf.DisableUnserialization = readBoolCookie(r, "isDisabledUnserialization")
+	selfConf.DisableJobDataHighlight = readBoolCookie(r, "isDisabledJobDataHighlight")
+	selfConf.EnableBase64Decode = readBoolCookie(r, "isEnabledBase64Decode")
 	selfConf.TubePauseSeconds = readIntCookie(r, `tubePauseSeconds`, -1)
 	selfConf.AutoRefreshTimeoutMs = readIntCookie(r, `autoRefreshTimeoutMs`, 500)
 	selfConf.SearchResultLimit = readIntCookie(r, `searchResultLimit`, 25)
 	selfConf.TubeSelector = tubeSelectorValue
+	selfConfMu.Unlock()
 }
 
-// readIntCookie return int value by the given string.
+// readIntCookie returns an integer cookie value, or defaultValue if absent or invalid.
 func readIntCookie(r *http.Request, name string, defaultValue int) int {
 	cookie, err := r.Cookie(name)
-	if err == nil {
-		value, err := strconv.Atoi(cookie.Value)
-		if err == nil {
-			return value
-		}
+	if err != nil {
+		return defaultValue
 	}
-	return defaultValue
+	value, err := strconv.Atoi(cookie.Value)
+	if err != nil {
+		return defaultValue
+	}
+	return value
 }
 
-// removeServerInCookie remove field in cookie by the given string.
+// readBoolCookie returns true if the cookie value is "1".
+func readBoolCookie(r *http.Request, name string) bool {
+	cookie, err := r.Cookie(name)
+	if err != nil {
+		return false
+	}
+	return cookie.Value == "1"
+}
+
+// removeServerInCookie removes a server from cookies and updates the response.
 func removeServerInCookie(server string, w http.ResponseWriter, r *http.Request) {
-	for k, v := range selfConf.Servers {
-		if v == server {
-			selfConf.Servers = selfConf.Servers[:k+copy(selfConf.Servers[k:], selfConf.Servers[k+1:])]
+	selfConfMu.Lock()
+	filtered := make([]string, 0, len(selfConf.Servers))
+	for _, v := range selfConf.Servers {
+		if v != server {
+			filtered = append(filtered, v)
 		}
 	}
-	var serverInCookie string
-	for _, v := range selfConf.Servers {
-		serverInCookie += v + `;`
+	selfConf.Servers = filtered
+	servers := selfConf.Servers
+	selfConfMu.Unlock()
+
+	var buf strings.Builder
+	for _, v := range servers {
+		buf.WriteString(v)
+		buf.WriteByte(';')
 	}
-	cookie := http.Cookie{
-		Name:  `beansServers`,
-		Value: url.QueryEscape(serverInCookie),
+	http.SetCookie(w, &http.Cookie{
+		Name:     "beansServers",
+		Value:    url.QueryEscape(buf.String()),
+		Path:     "/",
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// isValidServer checks whether addr is a valid host:port string.
+func isValidServer(addr string) bool {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return false
 	}
-	http.SetCookie(w, &cookie)
+	host, port := parts[0], parts[1]
+	if _, err := url.ParseRequestURI(addr); err != nil && net.ParseIP(host) == nil {
+		return false
+	}
+	_, err := strconv.Atoi(port)
+	return err == nil
 }

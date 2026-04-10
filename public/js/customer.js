@@ -170,10 +170,10 @@ $(document).ready(
 
                 $('.moveJobsNewTubeName').keypress(function (e) {
                     if (e.which == 13) {
-                        if ($(this).val().length > 0) {
-                            console.log($(this).data('href') + encodeURIComponent($(this).val()));
-                        }
-                        document.location.replace($(this).data('href') + encodeURIComponent($(this).val()));
+                        var href = $(this).data('href') + encodeURIComponent($(this).val());
+                        var form = $('<form>', { method: 'POST', action: href }).hide();
+                        $('body').append(form);
+                        form.submit();
                     }
                 });
                 $(document).on('click', '#addServer', function () {
@@ -371,6 +371,14 @@ $(document).ready(
                     'error': function () {
                         alert('error ajax...');
                     }
+                });
+                // Convert links with data-method="post" to POST form submissions (CSRF protection).
+                $(document).on('click', 'a[data-method="post"]', function (e) {
+                    e.preventDefault();
+                    var href = $(this).attr('href');
+                    var form = $('<form>', { method: 'POST', action: href }).hide();
+                    $('body').append(form);
+                    form.submit();
                 });
             }
         }

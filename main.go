@@ -1,18 +1,7 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-//
-// See https://xuri.me/aurora for more information about aurora.
 package main
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -22,22 +11,20 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 //go:embed public
 var staticFiles embed.FS
 
-// main function defines the entry point for the program if read config file or
-// init failed, the application will be exit.
 func main() {
 	parseFlags()
-	err := readConf()
-	if err != nil {
+	if err := readConf(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
 	public, _ := fs.Sub(staticFiles, "public")
-	// handle static files include HTML, CSS and JavaScripts.
 	http.Handle("/", http.FileServer(http.FS(public)))
 	http.HandleFunc("/public", basicAuth(handlerMain))
 	http.HandleFunc("/index", basicAuth(handlerServerList))
@@ -46,45 +33,55 @@ func main() {
 	http.HandleFunc("/tube", basicAuth(handlerTube))
 	http.HandleFunc("/sample", basicAuth(handlerSample))
 	http.HandleFunc("/statistics", basicAuth(handlerStatistics))
+
+	srv := &http.Server{Addr: pubConf.Listen}
 	go func() {
-		err = http.ListenAndServe(pubConf.Listen, nil)
-		if err != nil {
-			fmt.Println("Cant start server:", err)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			fmt.Println("cannot start server:", err)
 			os.Exit(1)
 		}
 	}()
-	go statistic()
+	go statisticsCollector()
+
 	openPage()
-	handleSignals()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	fmt.Println("\nshutting down...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
 }
 
-// openPage function can be open system default browser automatic.
+// openPage opens the console URL in the system's default browser.
 func openPage() {
-	url := fmt.Sprintf("http://%v", pubConf.Listen)
-	fmt.Println("To view beanstalkd console open", url, "in browser")
+	addr := fmt.Sprintf("http://%s", pubConf.Listen)
+	fmt.Println("To view beanstalkd console open", addr, "in browser")
 	if !pubConf.OpenPage.Enabled {
 		return
 	}
+
 	var err error
 	switch runtime.GOOS {
 	case "linux", "freebsd", "openbsd", "netbsd":
-		err = runCmd("xdg-open", url)
+		err = runCmd("xdg-open", addr)
 	case "darwin":
-		err = runCmd("open", url)
+		err = runCmd("open", addr)
 	case "windows":
-		r := strings.NewReplacer("&", "^&")
-		err = runCmd("cmd", "/c", "start", r.Replace(url))
+		err = runCmd("cmd", "/c", "start", strings.NewReplacer("&", "^&").Replace(addr))
 	default:
-		err = fmt.Errorf("unsupported platform")
+		err = fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
 	if err != nil {
 		fmt.Println(err)
 	}
 }
 
-// handleSignals handle kill signal.
+// handleSignals waits for an interrupt signal (used by tests).
 func handleSignals() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
-	<-c
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 }

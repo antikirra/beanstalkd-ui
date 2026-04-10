@@ -1,196 +1,184 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
+	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
-// handlerMain handle request on router: /
+// handlerMain serves the main dashboard page.
 func handlerMain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "Go WebServer")
 	w.Header().Set("Content-Type", "text/html")
-	server := r.URL.Query().Get("server")
 	readCookies(r)
-	_, _ = io.WriteString(w, tplMain(getServerStatus(), server))
+	server := r.URL.Query().Get("server")
+	fmt.Fprint(w, tplMain(getServerStatus(), server))
 }
 
-// handlerServerList handle request on router: /index
+// handlerServerList returns the server list HTML fragment (AJAX).
 func handlerServerList(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
-	_, _ = io.WriteString(w, getServerStatus())
+	fmt.Fprint(w, getServerStatus())
 }
 
-// serversRemove handle request on router: /serversRemove
+// serversRemove removes a server from the configuration and cookies. POST only.
 func serversRemove(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	server := r.URL.Query().Get("removeServer")
 	removeServerInCookie(server, w, r)
 	removeServerInConfig(server)
-	w.Header().Set("Location", "./public")
-	w.WriteHeader(307)
+	http.Redirect(w, r, "./public", http.StatusTemporaryRedirect)
 }
 
-// handlerServer handle request on router: /server
+// handlerServer serves the server detail page and its AJAX actions.
 func handlerServer(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
-	server := html.EscapeString(r.URL.Query().Get("server"))
-	action := r.URL.Query().Get("action")
-	switch action {
+	server := r.URL.Query().Get("server")
+
+	switch r.URL.Query().Get("action") {
 	case "reloader":
-		_, _ = io.WriteString(w, getServerTubes(server))
-		return
+		fmt.Fprint(w, getServerTubes(server))
 	case "clearTubes":
 		_ = r.ParseForm()
 		clearTubes(server, r.Form)
-		_, _ = io.WriteString(w, `{"result":true}`)
-		return
+		fmt.Fprint(w, `{"result":true}`)
+	default:
+		fmt.Fprint(w, tplServer(getServerTubes(server), html.EscapeString(server)))
 	}
-	_, _ = io.WriteString(w, tplServer(getServerTubes(server), server))
 }
 
-// handlerTube handle request on router: /tube
+// handlerTube serves the tube detail page and its actions.
 func handlerTube(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
-	server := html.EscapeString(r.URL.Query().Get("server"))
-	tube := html.EscapeString(r.URL.Query().Get("tube"))
-	action := r.URL.Query().Get("action")
-	count := html.EscapeString(r.URL.Query().Get("count"))
+
+	q := r.URL.Query()
+	server := q.Get("server")
+	tube := q.Get("tube")
+	action := q.Get("action")
+
 	switch action {
 	case "addjob":
-		addJob(server, r.PostFormValue("tubeName"), r.PostFormValue("tubeData"), r.PostFormValue("tubePriority"), r.PostFormValue("tubeDelay"), r.PostFormValue("tubeTtr"))
-		_, _ = io.WriteString(w, `{"result":true}`)
-		return
+		addJob(server,
+			r.PostFormValue("tubeName"), r.PostFormValue("tubeData"),
+			r.PostFormValue("tubePriority"), r.PostFormValue("tubeDelay"), r.PostFormValue("tubeTtr"))
+		fmt.Fprint(w, `{"result":true}`)
 	case "search":
-		content := searchTube(server, tube, html.EscapeString(r.URL.Query().Get("limit")), html.EscapeString(r.URL.Query().Get("searchStr")))
-		_, _ = io.WriteString(w, tplTube(content, server, tube))
-		return
+		content := searchTube(server, tube, q.Get("limit"), q.Get("searchStr"))
+		fmt.Fprint(w, tplTube(content, html.EscapeString(server), html.EscapeString(tube)))
 	case "addSample":
 		_ = r.ParseForm()
 		addSample(server, r.Form, w)
-		return
 	default:
-		handleRedirect(w, r, server, tube, action, count)
+		handleRedirect(w, r, server, tube, action, q)
 	}
 }
 
-// handleRedirect handle request with redirect response.
-func handleRedirect(w http.ResponseWriter, r *http.Request, server string, tube string, action string, count string) {
-	var link strings.Builder
-	link.WriteString(`./tube?server=`)
-	link.WriteString(server)
-	link.WriteString(`&tube=`)
+// redirectToTube sends a 307 redirect back to the tube page.
+func redirectToTube(w http.ResponseWriter, r *http.Request, server, tube string) {
+	target := fmt.Sprintf("./tube?server=%s&tube=%s", server, url.QueryEscape(tube))
+	http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+}
+
+// handleRedirect dispatches state-changing tube actions. POST required for mutations.
+func handleRedirect(w http.ResponseWriter, r *http.Request, server, tube, action string, q url.Values) {
+	// State-changing actions require POST to prevent CSRF.
+	switch action {
+	case "kick", "kickJob", "pause", "deleteAll", "deleteJob", "moveJobsTo", "loadSample":
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+	}
+
 	switch action {
 	case "kick":
-		kick(server, tube, count)
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		kick(server, tube, q.Get("count"))
+		redirectToTube(w, r, server, tube)
 	case "kickJob":
-		kickJob(server, tube, r.URL.Query().Get("jobid"))
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		kickJob(server, tube, q.Get("jobid"))
+		redirectToTube(w, r, server, tube)
 	case "pause":
-		pause(server, tube, count)
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		pause(server, tube, q.Get("count"))
+		redirectToTube(w, r, server, tube)
 	case "moveJobsTo":
-		destTube := tube
-		if r.URL.Query().Get("destTube") != "" {
-			destTube = r.URL.Query().Get("destTube")
+		destTube := q.Get("destTube")
+		if destTube == "" {
+			destTube = tube
 		}
-		moveJobsTo(server, tube, destTube, r.URL.Query().Get("state"), r.URL.Query().Get("destState"))
-		link.WriteString(url.QueryEscape(destTube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		moveJobsTo(server, tube, destTube, q.Get("state"), q.Get("destState"))
+		redirectToTube(w, r, server, destTube)
 	case "deleteAll":
 		deleteAll(server, tube)
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		redirectToTube(w, r, server, tube)
 	case "deleteJob":
-		deleteJob(server, tube, r.URL.Query().Get("jobid"))
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		deleteJob(server, tube, q.Get("jobid"))
+		redirectToTube(w, r, server, tube)
 	case "loadSample":
-		loadSample(server, tube, r.URL.Query().Get("key"))
-		link.WriteString(url.QueryEscape(tube))
-		w.Header().Set("Location", link.String())
-		w.WriteHeader(307)
+		loadSample(server, tube, q.Get("key"))
+		redirectToTube(w, r, server, tube)
+	default:
+		fmt.Fprint(w, tplTube(currentTubeJobs(server, tube), html.EscapeString(server), html.EscapeString(tube)))
 	}
-	_, _ = io.WriteString(w, tplTube(currentTube(server, tube), server, tube))
 }
 
-// handlerSample handle request on router: /sample
+// handlerSample serves the sample jobs management page.
 func handlerSample(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
-	action := r.URL.Query().Get("action")
-	server := html.EscapeString(r.URL.Query().Get("server"))
-	switch action {
+
+	q := r.URL.Query()
+	server := q.Get("server")
+
+	switch q.Get("action") {
 	case "manageSamples":
-		_, _ = io.WriteString(w, tplSampleJobsManage(getSampleJobList(), server))
-		return
+		fmt.Fprint(w, tplSampleJobsManage(getSampleJobList(), server))
 	case "newSample":
-		_, _ = io.WriteString(w, tplSampleJobsManage(tplSampleJobEdit("", ""), server))
-		return
+		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit("", ""), server))
 	case "editSample":
-		_, _ = io.WriteString(w, tplSampleJobsManage(tplSampleJobEdit(html.EscapeString(r.URL.Query().Get("key")), ""), server))
-		return
+		fmt.Fprint(w, tplSampleJobsManage(tplSampleJobEdit(html.EscapeString(q.Get("key")), ""), server))
 	case "actionNewSample":
 		_ = r.ParseForm()
 		newSample(server, r.Form, w, r)
-		return
 	case "actionEditSample":
 		_ = r.ParseForm()
-		editSample(server, r.Form, r.URL.Query().Get("key"), w, r)
-		return
+		editSample(server, r.Form, q.Get("key"), w, r)
 	case "deleteSample":
-		deleteSamples(r.URL.Query().Get("key"))
-		w.Header().Set("Location", "./sample?action=manageSamples")
-		w.WriteHeader(307)
-		return
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		deleteSamples(q.Get("key"))
+		http.Redirect(w, r, "./sample?action=manageSamples", http.StatusTemporaryRedirect)
 	}
 }
 
-// handlerStatistics handle request on router: /statistics
+// handlerStatistics serves the statistics page and its AJAX actions.
 func handlerStatistics(w http.ResponseWriter, r *http.Request) {
 	setHeader(w, r)
 	readCookies(r)
-	action := r.URL.Query().Get("action")
-	server := html.EscapeString(r.URL.Query().Get("server"))
-	tube := html.EscapeString(r.URL.Query().Get("tube"))
-	switch action {
+
+	q := r.URL.Query()
+	server := q.Get("server")
+	tube := q.Get("tube")
+
+	switch q.Get("action") {
 	case "preference":
-		_, _ = io.WriteString(w, tplStatisticSetting(tplStatisticEdit("")))
-		return
+		fmt.Fprint(w, tplStatisticSetting(tplStatisticEdit("")))
 	case "save":
 		_ = r.ParseForm()
 		statisticPreferenceSave(r.Form, w, r)
-		return
 	case "reloader":
-		_, _ = io.WriteString(w, statisticWaitress(server, tube))
-		return
+		fmt.Fprint(w, statisticsJSON(server, tube))
+	default:
+		fmt.Fprint(w, tplStatistic(server, tube))
 	}
-	_, _ = io.WriteString(w, tplStatistic(server, tube))
 }

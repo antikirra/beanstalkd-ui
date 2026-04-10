@@ -1,17 +1,7 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
+	"fmt"
 	"math"
 	"net/url"
 	"strconv"
@@ -21,317 +11,271 @@ import (
 	"github.com/xuri/aurora/beanstalk"
 )
 
-// addJob puts a job into tube by given config.
-func addJob(server string, tube string, data string, priority string, delay string, TTR string) {
-	var (
-		err                error
-		tubeDelay, tubeTTR int
-		tubePriority       uint64
-		bstkConn           *beanstalk.Conn
+// dialBeanstalk opens a new connection to the given beanstalkd server.
+func dialBeanstalk(server string) (*beanstalk.Conn, error) {
+	return beanstalk.Dial("tcp", server)
+}
+
+// newTube creates a Tube handle on an existing connection.
+func newTube(conn *beanstalk.Conn, name string) *beanstalk.Tube {
+	return &beanstalk.Tube{Conn: conn, Name: name}
+}
+
+// addJob puts a job into the specified tube.
+func addJob(server, tube, data, priority, delay, ttr string) {
+	pri, err := strconv.ParseUint(priority, 10, 32)
+	if err != nil || pri > math.MaxUint32 {
+		pri = uint64(DefaultPriority)
+	}
+	d, err := strconv.Atoi(delay)
+	if err != nil {
+		d = DefaultDelay
+	}
+	t, err := strconv.Atoi(ttr)
+	if err != nil {
+		t = DefaultTTR
+	}
+
+	conn, err := dialBeanstalk(server)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	_, _ = newTube(conn, tube).Put(
+		[]byte(data),
+		uint32(pri),
+		time.Duration(d)*time.Second,
+		time.Duration(t)*time.Second,
 	)
-	tubePriority, err = strconv.ParseUint(priority, 10, 32)
-	if err != nil || tubePriority > math.MaxUint32 {
-		tubePriority = DefaultPriority
-	}
-	tubeDelay, err = strconv.Atoi(delay)
-	if err != nil {
-		tubeDelay = DefaultDelay
-	}
-	tubeTTR, err = strconv.Atoi(TTR)
-	if err != nil {
-		tubeTTR = DefaultTTR
-	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
-		return
-	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
-	_, _ = bstkTube.Put([]byte(data), uint32(tubePriority), time.Duration(tubeDelay)*time.Second, time.Duration(tubeTTR)*time.Second)
-	bstkConn.Close()
 }
 
-// deleteJob delete a job in tube by given config.
-func deleteJob(server string, tube string, jobID string) {
-	var err error
-	var id int
-	var bstkConn *beanstalk.Conn
-	id, err = strconv.Atoi(jobID)
+// deleteJob deletes a single job by ID.
+func deleteJob(server, tube, jobID string) {
+	id, err := strconv.Atoi(jobID)
 	if err != nil {
 		return
 	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
 		return
 	}
-	_ = bstkConn.Delete(uint64(id))
-	bstkConn.Close()
+	defer conn.Close()
+	_ = conn.Delete(uint64(id))
 }
 
-// deleteAll delete all jobs in tube by given server and tube.
-func deleteAll(server string, tube string) {
-	var err error
-	var bstkConn *beanstalk.Conn
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+// deleteAll removes all jobs (ready, buried, delayed) from a tube.
+func deleteAll(server, tube string) {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
 		return
 	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
-	for {
-		readyJob, _, err := bstkTube.PeekReady()
-		if err != nil {
-			break
-		}
-		_ = bstkConn.Delete(readyJob)
-	}
-	for {
-		buriedJob, _, err := bstkTube.PeekBuried()
-		if err != nil {
-			break
-		}
-		_ = bstkConn.Delete(buriedJob)
-	}
-	for {
-		delayedJob, _, err := bstkTube.PeekDelayed()
-		if err != nil {
-			break
-		}
-		_ = bstkConn.Delete(delayedJob)
-	}
-	bstkConn.Close()
+	defer conn.Close()
+
+	t := newTube(conn, tube)
+	drainTube(conn, t.PeekReady)
+	drainTube(conn, t.PeekBuried)
+	drainTube(conn, t.PeekDelayed)
 }
 
-// kick takes up to bound jobs from the holding area and moves them into the
-// ready queue, then returns the number of jobs moved. Jobs will be taken in the
-// order in which they were last buried.
-func kick(server string, tube string, count string) {
-	var err error
-	var bound int
-	var bstkConn *beanstalk.Conn
-	bound, err = strconv.Atoi(count)
+// drainTube repeatedly peeks and deletes jobs until the peek function returns an error.
+func drainTube(conn *beanstalk.Conn, peek func() (uint64, []byte, error)) {
+	for {
+		id, _, err := peek()
+		if err != nil {
+			return
+		}
+		_ = conn.Delete(id)
+	}
+}
+
+// kick moves up to count buried jobs back to the ready queue.
+func kick(server, tube, count string) {
+	bound, err := strconv.Atoi(count)
 	if err != nil {
 		bound = 0
 	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
-		return
-	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
-	_, _ = bstkTube.Kick(bound)
-	bstkConn.Close()
-}
-
-// kickJob kick single job in tube by given server, tube name and job ID.
-func kickJob(server string, tube string, id string) {
-	var err error
-	var bound int
-	var bstkConn *beanstalk.Conn
-	bound, err = strconv.Atoi(id)
+	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
 	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
-		return
-	}
-	_ = bstkConn.KickJob(uint64(bound))
-	bstkConn.Close()
+	defer conn.Close()
+	_, _ = newTube(conn, tube).Kick(bound)
 }
 
-// pause pauses new reservations in tube for time duration.
-func pause(server string, tube string, count string) {
-	var err error
-	var bstkConn *beanstalk.Conn
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+// kickJob kicks a single job by its ID.
+func kickJob(server, tube, id string) {
+	jobID, err := strconv.Atoi(id)
+	if err != nil {
 		return
 	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
+	conn, err := dialBeanstalk(server)
+	if err != nil {
+		return
 	}
+	defer conn.Close()
+	_ = conn.KickJob(uint64(jobID))
+}
+
+// pause pauses or unpauses a tube based on the count parameter.
+// count="-1" pauses for the configured duration, count="0" unpauses.
+func pause(server, tube, count string) {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	t := newTube(conn, tube)
 	switch count {
-	case "-1": // Pause tube
+	case "-1":
+		dur := time.Duration(selfConf.TubePauseSeconds) * time.Second
 		if selfConf.TubePauseSeconds == -1 {
-			_ = bstkTube.Pause(DefaultTubePauseSeconds * time.Second)
-		} else {
-			_ = bstkTube.Pause(time.Duration(selfConf.TubePauseSeconds) * time.Second)
+			dur = DefaultTubePauseSeconds * time.Second
 		}
+		_ = t.Pause(dur)
 	case "0":
-		_ = bstkTube.Pause(0 * time.Second) // Unpause tube
+		_ = t.Pause(0)
 	}
-	bstkConn.Close()
 }
 
-// moveJobsTo switch two case when move a job.
-func moveJobsTo(server string, tube string, destTube string, state string, destState string) {
+// moveJobsTo dispatches job movement based on the source state.
+func moveJobsTo(server, tube, destTube, state, destState string) {
 	switch state {
-	case "ready": // ready to buried or ready
+	case "ready":
 		moveReadyJobsTo(server, tube, destTube, destState)
-	case "buried": // move job across the tube
+	case "buried":
 		moveBuriedJobsTo(server, tube, destTube, destState)
 	}
 }
 
-// moveReadyJobsTo process job moved origin stats in ready.
-func moveReadyJobsTo(server string, tube string, destTube string, destState string) {
-	var err error
-	var bstkConn *beanstalk.Conn
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+// moveReadyJobsTo moves ready jobs to another tube or buries them.
+func moveReadyJobsTo(server, tube, destTube, destState string) {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
 		return
 	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
+	defer conn.Close()
+
 	switch destState {
 	case "buried":
-		tubeSet := beanstalk.NewTubeSet(bstkConn, tube)
+		ts := beanstalk.NewTubeSet(conn, tube)
 		for {
-			id, _, err := tubeSet.Reserve(time.Second)
+			id, _, err := ts.Reserve(time.Second)
 			if err != nil {
-				break
+				return
 			}
-			err = bstkConn.Bury(id, DefaultPriority)
-			if err != nil {
-				break
+			if err := conn.Bury(id, DefaultPriority); err != nil {
+				return
 			}
 		}
 	default:
 		if tube == destTube {
-			bstkConn.Close()
 			return
 		}
-		bstkDestTube := &beanstalk.Tube{
-			Conn: bstkConn,
-			Name: destTube,
-		}
+		src := newTube(conn, tube)
+		dst := newTube(conn, destTube)
 		for {
-			readyJob, readyBody, err := bstkTube.PeekReady()
+			id, body, err := src.PeekReady()
 			if err != nil {
-				break
+				return
 			}
-			_, err = bstkDestTube.Put(readyBody, DefaultPriority, DefaultDelay, DefaultTTR)
-			if err != nil {
-				break
+			if _, err := dst.Put(body, DefaultPriority, DefaultDelay, DefaultTTR); err != nil {
+				return
 			}
-			err = bstkConn.Delete(readyJob)
-			if err != nil {
-				break
+			if err := conn.Delete(id); err != nil {
+				return
 			}
 		}
 	}
-	bstkConn.Close()
 }
 
-// moveBuriedJobsTo process job moved origin stats in buried.
-func moveBuriedJobsTo(server string, tube string, destTube string, destState string) {
-	var err error
-	var bstkConn *beanstalk.Conn
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+// moveBuriedJobsTo moves buried jobs from one tube to another.
+func moveBuriedJobsTo(server, tube, destTube, destState string) {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
 		return
 	}
-	bstkTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: tube,
-	}
-	bstkDestTube := &beanstalk.Tube{
-		Conn: bstkConn,
-		Name: destTube,
-	}
+	defer conn.Close()
+
+	src := newTube(conn, tube)
+	dst := newTube(conn, destTube)
 	for {
-		buriedJob, buriedBody, err := bstkTube.PeekBuried()
+		id, body, err := src.PeekBuried()
 		if err != nil {
-			break
+			return
 		}
-		_, err = bstkDestTube.Put(buriedBody, DefaultPriority, DefaultDelay, DefaultTTR)
-		if err != nil {
-			break
+		if _, err := dst.Put(body, DefaultPriority, DefaultDelay, DefaultTTR); err != nil {
+			return
 		}
-		err = bstkConn.Delete(buriedJob)
-		if err != nil {
-			break
+		if err := conn.Delete(id); err != nil {
+			return
 		}
 	}
-	bstkConn.Close()
 }
 
-// clearTubes delete all jobs in all tubes by given server.
+// clearTubes deletes all jobs from every tube listed in data.
 func clearTubes(server string, data url.Values) {
-	for tube := range data { // range over map
+	for tube := range data {
 		deleteAll(server, tube)
 	}
 }
 
-// searchTube search job by given search string in ready, delayed and buried
-// stats.
-func searchTube(server string, tube string, limit string, searchStr string) string {
-	var (
-		bstkConn      *beanstalk.Conn
-		bstkConnStats map[string]string
-		err           error
-		result        = []SearchResult{}
-		searchLimit   int
-		statsFilter   = []string{"ready", "delayed", "buried"}
-		table         = currentTubeJobsSummaryTable(server, tube)
-		totalJobs, id uint64
-	)
-	if table == `` {
-		return `Tube "` + tube + `" not found or it is empty <br><br><a href="./server?server=` + server + `"> &lt;&lt; back </a>`
+// searchTube searches for jobs containing searchStr across ready, delayed, and buried states.
+func searchTube(server, tube, limit, searchStr string) string {
+	table := currentTubeJobsSummaryTable(server, tube)
+	if table == "" {
+		return fmt.Sprintf(`Tube %q not found or it is empty <br><br><a href="./server?server=%s"> &lt;&lt; back </a>`, tube, server)
 	}
-	searchLimit, err = strconv.Atoi(limit)
+
+	searchLimit, err := strconv.Atoi(limit)
 	if err != nil {
 		return table
 	}
-	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
+
+	conn, err := dialBeanstalk(server)
+	if err != nil {
 		return table
 	}
-	if bstkConnStats, err = bstkConn.Stats(); err != nil {
+	defer conn.Close()
+
+	stats, err := conn.Stats()
+	if err != nil {
 		return table
 	}
-	if totalJobs, err = strconv.ParseUint(bstkConnStats["total-jobs"], 10, 64); err != nil {
+	totalJobs, err := strconv.ParseUint(stats["total-jobs"], 10, 64)
+	if err != nil {
 		return table
 	}
-	// Get ready stat job total
-	for _, state := range statsFilter {
-		var cnt int
-		for id = totalJobs; id > 0; id-- {
-			if cnt >= searchLimit {
-				continue
-			}
-			ret := searchTubeInStats(tube, searchStr, state, bstkConn, id)
-			if ret != nil {
-				result = append(result, *ret)
+
+	var result []SearchResult
+	for _, state := range []string{"ready", "delayed", "buried"} {
+		cnt := 0
+		for id := totalJobs; id > 0 && cnt < searchLimit; id-- {
+			if r := matchJob(conn, tube, searchStr, state, id); r != nil {
+				result = append(result, *r)
 				cnt++
 			}
 		}
 	}
-	bstkConn.Close()
 	return table + currentTubeSearchResults(server, tube, limit, searchStr, result)
 }
 
-// searchTubeInStats search job in tube by given stats.
-func searchTubeInStats(tube, searchStr, stat string, bstkConn *beanstalk.Conn, id uint64) *SearchResult {
-	jobStats, err := bstkConn.StatsJob(id)
+// matchJob checks whether a single job matches the search criteria.
+func matchJob(conn *beanstalk.Conn, tube, searchStr, state string, id uint64) *SearchResult {
+	jobStats, err := conn.StatsJob(id)
 	if err != nil {
 		return nil
 	}
-	if jobStats["tube"] != tube || jobStats["state"] != stat {
+	if jobStats["tube"] != tube || jobStats["state"] != state {
 		return nil
 	}
-	readyBody, err := bstkConn.Peek(id)
+	body, err := conn.Peek(id)
 	if err != nil {
 		return nil
 	}
-	body := string(readyBody)
-	if !strings.Contains(body, searchStr) {
+	if !strings.Contains(string(body), searchStr) {
 		return nil
 	}
-	return &SearchResult{
-		ID:    id,
-		State: stat,
-		Data:  string(readyBody),
-	}
+	return &SearchResult{ID: id, State: state, Data: string(body)}
 }

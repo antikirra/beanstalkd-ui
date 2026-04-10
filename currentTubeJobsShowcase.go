@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -41,6 +30,7 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 	if bstkConn, err = beanstalk.Dial("tcp", server); err != nil {
 		return `<hr><div class="pull-left"><h3>Next job in "ready" state</h3></div><div class="clearfix"></div><i>empty</i><hr><div class="pull-left"><h3>Next job in "delayed" state</h3></div><div class="clearfix"></div><i>empty</i><hr><div class="pull-left"><h3>Next job in "buried" state</h3></div><div class="clearfix"></div><i>empty</i>`
 	}
+	defer bstkConn.Close()
 	tubeStats := &beanstalk.Tube{
 		Conn: bstkConn,
 		Name: tube,
@@ -72,7 +62,7 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 			s.WriteString(`</td></tr>`)
 		}
 		for _, v := range tubes {
-			m.WriteString(`<li><a href="?server=`)
+			m.WriteString(`<li><a data-method="post" href="?server=`)
 			m.WriteString(server)
 			m.WriteString(`&tube=`)
 			m.WriteString(url.QueryEscape(tube))
@@ -101,13 +91,13 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 			b.WriteString(stat)
 			b.WriteString(`&destTube=" placeholder="New tube name"/></li>`)
 			b.WriteString(m.String())
-			b.WriteString(`<li class="divider"></li><li><a href="?server=`)
+			b.WriteString(`<li class="divider"></li><li><a data-method="post" href="?server=`)
 			b.WriteString(server)
 			b.WriteString(`&tube=`)
 			b.WriteString(url.QueryEscape(tube))
 			b.WriteString(`&action=moveJobsTo&destState=buried&state=`)
 			b.WriteString(stat)
-			b.WriteString(`">Buried</a></li></ul></div> <a class="btn btn-sm btn-danger" href="?server=`)
+			b.WriteString(`">Buried</a></li></ul></div> <a class="btn btn-sm btn-danger" data-method="post" href="?server=`)
 			b.WriteString(server)
 			b.WriteString(`&tube=`)
 			b.WriteString(url.QueryEscape(tube))
@@ -115,7 +105,7 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 			b.WriteString(stat)
 			b.WriteString(`&action=deleteAll&count=1" onclick="return confirm('This process might hang a while on tubes with lots of jobs. Are you sure you want to continue?');"><i class="glyphicon glyphicon-trash glyphicon-white"></i> Delete all `)
 			b.WriteString(stat)
-			b.WriteString(` jobs</a> <a class="btn btn-sm btn-danger" href="?server=`)
+			b.WriteString(` jobs</a> <a class="btn btn-sm btn-danger" data-method="post" href="?server=`)
 			b.WriteString(server)
 			b.WriteString(`&tube=`)
 			b.WriteString(url.QueryEscape(tube))
@@ -145,6 +135,5 @@ func currentTubeJobsShowcaseSections(server string, tube string) string {
 		}
 		buf.WriteString(r.String())
 	}
-	bstkConn.Close()
 	return buf.String()
 }

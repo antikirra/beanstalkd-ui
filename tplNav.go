@@ -1,14 +1,3 @@
-// Copyright 2016 - 2021 The aurora Authors. All rights reserved. Use of this
-// source code is governed by a MIT license that can be found in the LICENSE
-// file.
-//
-// The aurora is a web-based beanstalkd queue server console written in Go
-// and works on macOS, Linux and Windows machines. Main idea behind using Go
-// for backend development is to utilize ability of the compiler to produce
-// zero-dependency binaries for multiple platforms. aurora was created as an
-// attempt to build very simple and portable application to work with local or
-// remote beanstalkd server.
-
 package main
 
 import (
@@ -31,13 +20,13 @@ func getServerStatus() string {
 			td.WriteString(addr)
 			td.WriteString(`</td><td colspan="`)
 			td.WriteString(strconv.Itoa(len(selfConf.Filter)))
-			td.WriteString(`" class="row-full">&nbsp;</td><td><a class="btn btn-xs btn-danger" title="Remove from list" href="serversRemove?action=serversRemove&removeServer=`)
+			td.WriteString(`" class="row-full">&nbsp;</td><td><a class="btn btn-xs btn-danger" data-method="post" title="Remove from list" href="serversRemove?action=serversRemove&removeServer=`)
 			td.WriteString(addr)
 			td.WriteString(`"><span class="glyphicon glyphicon-minus"> </span></a></td></tr>`)
 			continue
 		}
 		s, _ := bstkConn.Stats()
-		bstkConn.Close()
+		_ = bstkConn.Close()
 		td.WriteString(`<tr><td><a href="server?server=`)
 		td.WriteString(addr)
 		td.WriteString(`">`)
@@ -48,7 +37,7 @@ func getServerStatus() string {
 			td.WriteString(s[v])
 			td.WriteString(`</td>`)
 		}
-		td.WriteString(`<td><a class="btn btn-xs btn-danger" title="Remove from list" href="serversRemove?action=serversRemove&removeServer=`)
+		td.WriteString(`<td><a class="btn btn-xs btn-danger" data-method="post" title="Remove from list" href="serversRemove?action=serversRemove&removeServer=`)
 		td.WriteString(addr)
 		td.WriteString(`"><span class="glyphicon glyphicon-minus"> </span></a></td></tr>`)
 	}
@@ -81,6 +70,7 @@ func getServerTubes(server string) string {
 		buf.WriteString(`</tr></thead><tbody></tbody></table></div></div></section></div>`)
 		return buf.String()
 	}
+	defer bstkConn.Close()
 	tubes, _ := bstkConn.ListTubes()
 	sort.Strings(tubes)
 	for _, v := range tubes {
@@ -108,7 +98,6 @@ func getServerTubes(server string) string {
 		tr.WriteString(`</tr>`)
 		td.Reset()
 	}
-	bstkConn.Close()
 	buf.WriteString(`<div id="idAllTubes"><section id="summaryTable"><div class="row"><div class="col-sm-12"><table class="table table-striped table-hover"><thead><tr><th>name</th>`)
 	buf.WriteString(th.String())
 	buf.WriteString(`</tr></thead><tbody>`)
@@ -161,6 +150,7 @@ func dropDownTube(server string, currentTube string) string {
 		ul.WriteString(`</ul></li>`)
 		return ul.String()
 	}
+	defer bstkConn.Close()
 	tubes, _ := bstkConn.ListTubes()
 	sort.Strings(tubes)
 	for _, v := range tubes {
@@ -172,7 +162,6 @@ func dropDownTube(server string, currentTube string) string {
 		ul.WriteString(v)
 		ul.WriteString(`</a></li>`)
 	}
-	bstkConn.Close()
 	if currentTube != "All tubes" {
 		ul.WriteString(`<li><a href="./server?server=`)
 		ul.WriteString(server)
@@ -186,13 +175,13 @@ func dropDownTube(server string, currentTube string) string {
 func dropEditSettings() string {
 	var buf strings.Builder
 	var isDisabledJSONDecode, isDisabledJobDataHighlight, isEnabledBase64Decode string
-	if selfConf.IsDisabledJSONDecode != 1 {
+	if !selfConf.DisableJSONDecode {
 		isDisabledJSONDecode = `checked="checked"`
 	}
-	if selfConf.IsDisabledJobDataHighlight != 1 {
+	if !selfConf.DisableJobDataHighlight {
 		isDisabledJobDataHighlight = `checked="checked"`
 	}
-	if selfConf.IsEnabledBase64Decode != 0 {
+	if selfConf.EnableBase64Decode {
 		isEnabledBase64Decode = `checked="checked"`
 	}
 	buf.WriteString(`<div id="settings" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="settings-label" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button><h4 class="modal-title" id="settings-label">Settings</h4></div><div class="modal-body"><fieldset><div class="form-group"><label for="tubePauseSeconds"><b>Tube pause seconds</b> (<i>-1</i> means the default: <i>3600</i>, <i>0</i> is reserved for un-pause)</label><input class="form-control focused" id="tubePauseSeconds" type="number" value="`)
