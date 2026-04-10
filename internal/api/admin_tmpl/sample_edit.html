@@ -1,8 +1,7 @@
 {{define "content"}}
 <div class="topbar">
   <h1 class="page-title">
-    <a href="/sample?action=manageSamples" class="breadcrumb-link"
-       hx-get="/sample?action=manageSamples" hx-target="#main" hx-push-url="true">Samples</a>
+    <a href="/sample?action=manageSamples" class="breadcrumb-link">Samples</a>
     <span class="breadcrumb-sep">›</span>
     {{if .SampleJob}}Edit: {{.SampleJob.Name}}{{else}}New Sample{{end}}
   </h1>
@@ -14,25 +13,22 @@
       <div class="card-body">
         <div class="form-group">
           <label class="form-label">Name *</label>
-          <input type="text" name="name" class="form-input" required
-                 value="{{if .SampleJob}}{{.SampleJob.Name}}{{end}}" autocomplete="off">
+          <input type="text" name="name" class="form-input" required value="{{if .SampleJob}}{{.SampleJob.Name}}{{end}}" autocomplete="off">
         </div>
         <div class="form-group">
-          <label class="form-label">TTR * <small class="text-muted">(default: {{defaultTTR}})</small></label>
-          <input type="number" name="ttr" class="form-input" required style="width:12em"
-                 value="{{if .SampleJob}}{{.SampleJob.TTR}}{{else}}{{defaultTTR}}{{end}}">
+          <label class="form-label">TTR * <span class="form-hint">(default: {{defaultTTR}})</span></label>
+          <input type="number" name="ttr" class="form-input input-medium" required value="{{if .SampleJob}}{{.SampleJob.TTR}}{{else}}{{defaultTTR}}{{end}}">
         </div>
         <div class="form-group">
           <label class="form-label">Available on tubes *</label>
           {{range $server, $tubes := .ServerTubes}}
           {{if $tubes}}
-          <div style="margin-bottom:12px">
+          <div class="tube-group">
             <b>{{$server}}</b>
-            <div style="padding-left:16px; margin-top:4px">
+            <div class="tube-group-items">
               {{range $tubes}}
               <label class="checkbox-label">
-                <input type="checkbox" name="tubes[{{.}}]" value="1"
-                       {{if $.SampleJob}}{{if contains $.SampleJob.Tubes .}}checked{{end}}{{end}}>
+                <input type="checkbox" name="tubes[{{.}}]" value="1" {{if $.SampleJob}}{{if contains $.SampleJob.Tubes .}}checked{{end}}{{end}}>
                 {{.}}
               </label>
               {{end}}

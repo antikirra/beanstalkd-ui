@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/xuri/aurora/internal/model"
 )
@@ -61,6 +62,8 @@ type pageData struct {
 	Conf model.SelfConf
 
 	// Misc.
+	PageTitle   string
+	PagePath    string
 	Version     float64
 	UpdateAlert string
 
@@ -73,9 +76,9 @@ type pageData struct {
 }
 
 type serverStat struct {
-	Addr    string
-	Online  bool
-	Stats   map[string]string
+	Addr   string
+	Online bool
+	Stats  map[string]string
 }
 
 type tubeStat struct {
@@ -163,6 +166,32 @@ func templateFuncMap() template.FuncMap {
 			}
 			return m
 		},
+		"refreshInterval": func(ms int) string {
+			if ms <= 0 {
+				ms = 500
+			}
+			if ms < 1000 {
+				return fmt.Sprintf("every %dms", ms)
+			}
+			return fmt.Sprintf("every %ds", ms/1000)
+		},
+		"statVal": func(col, val string) template.HTML {
+			if val == "" || val == "0" {
+				return template.HTML(val)
+			}
+			if strings.Contains(col, "buried") {
+				return template.HTML(`<span class="val-danger">` + template.HTMLEscapeString(val) + `</span>`)
+			}
+			if strings.Contains(col, "urgent") {
+				return template.HTML(`<span class="val-warning">` + template.HTMLEscapeString(val) + `</span>`)
+			}
+			return template.HTML(val)
+		},
+		"shortCol": func(s string) string {
+			s = strings.TrimPrefix(s, "current-")
+			s = strings.TrimPrefix(s, "cmd-")
+			return s
+		},
 		"defaultPriority": func() uint32 { return model.DefaultPriority },
 		"defaultDelay":    func() int { return model.DefaultDelay },
 		"defaultTTR":      func() int { return model.DefaultTTR },
@@ -170,10 +199,59 @@ func templateFuncMap() template.FuncMap {
 	}
 }
 
-//go:generate echo "templates are embedded via admin_tmpl"
+// templateSet holds pre-parsed per-page templates (layout + page content).
+type templateSet struct {
+	pages     map[string]*template.Template
+	fragments *template.Template
+}
 
-func parseTemplates(tmplFS fs.FS) (*template.Template, error) {
-	return template.New("").Funcs(templateFuncMap()).ParseFS(tmplFS, "*.html")
+// parseTemplates builds a per-page template set.
+// Each page template is a clone of the layout with the page's "content" block added on top.
+func parseTemplates(tmplFS fs.FS) (*templateSet, error) {
+	funcMap := templateFuncMap()
+
+	// Parse the shared layout once. Include partials (_*.html) if any exist.
+	layout, err := template.New("layout.html").Funcs(funcMap).ParseFS(tmplFS, "layout.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse layout: %w", err)
+	}
+	if partials, _ := fs.Glob(tmplFS, "_*.html"); len(partials) > 0 {
+		if _, err := layout.ParseFS(tmplFS, "_*.html"); err != nil {
+			return nil, fmt.Errorf("parse partials: %w", err)
+		}
+	}
+
+	// Each page file defines {{define "content"}}. Clone layout+partials and parse the page on top.
+	pageFiles := []string{
+		"servers.html",
+		"server.html",
+		"tube.html",
+		"samples.html",
+		"sample_edit.html",
+		"statistics.html",
+		"statistics_pref.html",
+		"settings.html",
+	}
+
+	pages := make(map[string]*template.Template, len(pageFiles))
+	for _, name := range pageFiles {
+		clone, err := layout.Clone()
+		if err != nil {
+			return nil, fmt.Errorf("clone layout for %s: %w", name, err)
+		}
+		if _, err := clone.ParseFS(tmplFS, name); err != nil {
+			return nil, fmt.Errorf("parse page %s: %w", name, err)
+		}
+		pages[name] = clone
+	}
+
+	// Parse all files together for fragment lookups (server_table, tube_table, etc.).
+	fragments, err := template.New("").Funcs(funcMap).ParseFS(tmplFS, "*.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse fragments: %w", err)
+	}
+
+	return &templateSet{pages: pages, fragments: fragments}, nil
 }
 
 func isHTMX(r *http.Request) bool {
@@ -183,32 +261,33 @@ func isHTMX(r *http.Request) bool {
 func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, data *pageData) {
 	data.Version = h.cfg.Version
 	data.Conf = readCookies(r, h.cfg)
-	data.UpdateAlert = h.checkUpdate()
+	data.PagePath = r.URL.Path
 
 	if f := getFlash(w, r); f != nil {
 		data.Flash = f
 	}
 
-	var tmplName string
-	if isHTMX(r) {
-		tmplName = name
-	} else {
-		tmplName = "layout.html"
-	}
-
-	var buf bytes.Buffer
-	if err := h.tmpl.ExecuteTemplate(&buf, tmplName, data); err != nil {
-		h.log.Error("template render failed", "template", tmplName, "error", err)
+	pageTmpl, ok := h.tmpl.pages[name]
+	if !ok {
+		h.log.Error("page template not found", "template", name)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+
+	var buf bytes.Buffer
+	if err := pageTmpl.ExecuteTemplate(&buf, "layout.html", data); err != nil {
+		h.log.Error("template render failed", "template", name, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	buf.WriteTo(w)
 }
 
 func (h *Handlers) renderFragment(w http.ResponseWriter, r *http.Request, name string, data any) {
 	var buf bytes.Buffer
-	if err := h.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
+	if err := h.tmpl.fragments.ExecuteTemplate(&buf, name, data); err != nil {
 		h.log.Error("fragment render failed", "template", name, "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return

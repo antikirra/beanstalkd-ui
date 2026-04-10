@@ -1,0 +1,47 @@
+{{define "content"}}
+<div class="topbar">
+  <h1 class="page-title">Settings</h1>
+</div>
+
+<div class="page">
+  {{/* Display */}}
+  <div class="card">
+    <div class="card-header"><h3>Display</h3></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Auto-refresh interval <span class="form-hint">(ms, default: 500)</span></label>
+        <input type="number" id="autoRefreshTimeoutMs" class="form-input input-medium" value="{{.Conf.AutoRefreshTimeoutMs}}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Search result limit <span class="form-hint">(default: 25)</span></label>
+        <input type="number" id="searchResultLimit" class="form-input input-medium" value="{{.Conf.SearchResultLimit}}">
+      </div>
+    </div>
+  </div>
+
+  {{/* Job data */}}
+  <div class="card">
+    <div class="card-header"><h3>Job data</h3></div>
+    <div class="card-body">
+      <label class="checkbox-label"><input type="checkbox" id="isDisabledJsonDecode" {{checkedIf (not .Conf.DisableJSONDecode)}}> JSON decode before display</label>
+      <label class="checkbox-label"><input type="checkbox" id="isEnabledBase64Decode" {{checkedIf .Conf.EnableBase64Decode}}> Base64 decode before display</label>
+      <label class="checkbox-label"><input type="checkbox" id="isDisabledJobDataHighlight" {{checkedIf (not .Conf.DisableJobDataHighlight)}}> Enable syntax highlight</label>
+    </div>
+  </div>
+
+  {{/* Tube defaults */}}
+  <div class="card">
+    <div class="card-header"><h3>Tube defaults</h3></div>
+    <div class="card-body">
+      <div class="form-group">
+        <label class="form-label">Tube pause seconds <span class="form-hint">(-1 = default 3600, 0 = unpause)</span></label>
+        <input type="number" id="tubePauseSeconds" class="form-input input-medium" value="{{.Conf.TubePauseSeconds}}">
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <button class="btn btn-primary" data-action="saveSettings">Save settings</button>
+  </div>
+</div>
+{{end}}

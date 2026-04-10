@@ -10,29 +10,26 @@
         <div class="form-group">
           <label class="form-label">
             Collection record number
-            <small class="text-muted">(0 = disabled, recommended: 300)</small>
+            <span class="form-hint">(0 = disabled, recommended: 300)</span>
           </label>
-          <input type="number" name="collection" class="form-input" min="0" required
-                 value="{{.StatsCollection}}" style="width:12em">
+          <input type="number" name="collection" class="form-input input-medium" min="0" required value="{{.StatsCollection}}">
         </div>
         <div class="form-group">
           <label class="form-label">
             Acquisition frequency (seconds)
-            <small class="text-muted">(default: 300, minimum: 1)</small>
+            <span class="form-hint">(default: 300, minimum: 1)</span>
           </label>
-          <input type="number" name="frequency" class="form-input" min="1" required
-                 value="{{.StatsFrequency}}" style="width:12em">
+          <input type="number" name="frequency" class="form-input input-medium" min="1" required value="{{.StatsFrequency}}">
         </div>
         <div class="form-group">
           <label class="form-label"><b>Monitor tubes</b></label>
           {{range $server, $tubes := .StatsTubes}}
-          <div style="margin-bottom:12px">
+          <div class="tube-group">
             <b>{{$server}}</b>
-            <div style="padding-left:16px; margin-top:4px">
+            <div class="tube-group-items">
               {{range $tube, $checked := $tubes}}
               <label class="checkbox-label">
-                <input type="checkbox" name="tubes[{{$server}}:{{$tube}}]" value="1"
-                       {{if $checked}}checked{{end}}>
+                <input type="checkbox" name="tubes[{{$server}}:{{$tube}}]" value="1" {{if $checked}}checked{{end}}>
                 {{$tube}}
               </label>
               {{end}}

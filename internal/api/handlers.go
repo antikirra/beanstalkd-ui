@@ -6,7 +6,6 @@ import (
 	cryptoRand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -27,7 +26,7 @@ import (
 // Handlers holds all dependencies and mutable state for HTTP handlers.
 type Handlers struct {
 	log        *slog.Logger
-	tmpl       *template.Template
+	tmpl       *templateSet
 	cfg        *config.Config
 	configPath string
 
@@ -184,6 +183,7 @@ func compactUnique(s []string) []string {
 func (h *Handlers) handleServers(w http.ResponseWriter, r *http.Request) {
 	conf := readCookies(r, h.cfg)
 	h.render(w, r, "servers.html", &pageData{
+		PageTitle:          "Servers",
 		ServerStats:        h.getServerStats(conf),
 		Filter:             conf.Filter,
 		BinlogStatsGroups:  model.BinlogStatsGroups,
@@ -193,11 +193,16 @@ func (h *Handlers) handleServers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handlers) handleSettings(w http.ResponseWriter, r *http.Request) {
+	h.render(w, r, "settings.html", &pageData{PageTitle: "Settings"})
+}
+
 func (h *Handlers) handleServersReload(w http.ResponseWriter, r *http.Request) {
 	conf := readCookies(r, h.cfg)
-	h.renderFragment(w, r, "server_table", &pageData{
+	h.renderFragment(w, r, "server_table_inner", &pageData{
 		ServerStats: h.getServerStats(conf),
 		Filter:      conf.Filter,
+		Conf:        conf,
 	})
 }
 
@@ -221,10 +226,11 @@ func (h *Handlers) handleServer(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "reloader":
-		h.renderFragment(w, r, "tube_table", &pageData{
-			TubeStats:   h.getTubeStats(conf, server),
-			TubeFilters: conf.TubeFilters,
+		h.renderFragment(w, r, "tube_table_inner", &pageData{
+			TubeStats:     h.getTubeStats(conf, server),
+			TubeFilters:   conf.TubeFilters,
 			CurrentServer: server,
+			Conf:          conf,
 		})
 	case "clearTubes":
 		_ = r.ParseForm()
@@ -233,6 +239,7 @@ func (h *Handlers) handleServer(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"result":true}`)
 	default:
 		h.render(w, r, "server.html", &pageData{
+			PageTitle:     server,
 			CurrentServer: server,
 			TubeStats:     h.getTubeStats(conf, server),
 			TubeFilters:   conf.TubeFilters,
@@ -324,7 +331,9 @@ func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
 		setFlash(w, "success", "Sample loaded")
 		h.redirectToTube(w, r, server, tube)
 	case "reloader":
-		h.renderFragment(w, r, "tube_content", h.buildTubeData(conf, server, tube, nil, "", ""))
+		td := h.buildTubeData(conf, server, tube, nil, "", "")
+		td.Conf = conf
+		h.renderFragment(w, r, "tube_content_inner", td)
 	default:
 		h.render(w, r, "tube.html", h.buildTubeData(conf, server, tube, nil, "", ""))
 	}
@@ -337,6 +346,7 @@ func (h *Handlers) redirectToTube(w http.ResponseWriter, r *http.Request, server
 
 func (h *Handlers) buildTubeData(conf model.SelfConf, server, tube string, searchResults []model.SearchResult, searchStr, searchLimit string) *pageData {
 	data := &pageData{
+		PageTitle:     tube + " — " + server,
 		CurrentServer: server,
 		CurrentTube:   tube,
 		TubeFilters:   conf.TubeFilters,
@@ -421,11 +431,13 @@ func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
 		copy(jobs, h.sampleJobs.Jobs)
 		h.sampleJobsMu.RUnlock()
 		h.render(w, r, "samples.html", &pageData{
+			PageTitle:     "Samples",
 			CurrentServer: server,
 			SampleJobs:    jobs,
 		})
 	case "newSample":
 		h.render(w, r, "sample_edit.html", &pageData{
+			PageTitle:     "New Sample",
 			CurrentServer: server,
 			Servers:       conf.Servers,
 			ServerTubes:   h.getServerTubesMap(conf),
@@ -433,7 +445,12 @@ func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
 	case "editSample":
 		key := q.Get("key")
 		job := h.findSampleJobLocked(key)
+		title := "Edit Sample"
+		if job != nil {
+			title = "Edit: " + job.Name
+		}
 		h.render(w, r, "sample_edit.html", &pageData{
+			PageTitle:     title,
 			CurrentServer: server,
 			SampleJob:     job,
 			Servers:       conf.Servers,
@@ -468,7 +485,9 @@ func (h *Handlers) handleStatistics(w http.ResponseWriter, r *http.Request) {
 
 	switch q.Get("action") {
 	case "preference":
-		h.render(w, r, "statistics_pref.html", h.buildStatsPrefData(conf))
+		data := h.buildStatsPrefData(conf)
+		data.PageTitle = "Statistics Preference"
+		h.render(w, r, "statistics_pref.html", data)
 	case "save":
 		_ = r.ParseForm()
 		h.statisticPreferenceSave(conf, r.Form, w, r)
@@ -477,6 +496,7 @@ func (h *Handlers) handleStatistics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, h.statisticsJSON(server, tube))
 	default:
 		h.render(w, r, "statistics.html", &pageData{
+			PageTitle:   "Statistics",
 			StatsServer: server,
 			StatsTube:   tube,
 		})

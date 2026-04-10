@@ -59,4 +59,5 @@ func (h *Handlers) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/tube", h.handleTube)
 	mux.HandleFunc("/sample", h.handleSamples)
 	mux.HandleFunc("/statistics", h.handleStatistics)
+	mux.HandleFunc("GET /settings", h.handleSettings)
 }
