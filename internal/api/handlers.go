@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xuri/aurora/beanstalk"
+	"github.com/beanstalkd/go-beanstalk"
 	"github.com/xuri/aurora/internal/config"
 	"github.com/xuri/aurora/internal/model"
 )
