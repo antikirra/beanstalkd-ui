@@ -20,7 +20,6 @@ type pageData struct {
 	Flash *flash
 
 	// Navigation.
-	Servers       []string
 	CurrentServer string
 	CurrentTube   string
 	Tubes         []string
@@ -67,12 +66,6 @@ type pageData struct {
 	PagePath  string
 	Version   float64
 
-	// Stats filter reference data.
-	BinlogStatsGroups  []model.StatsDesc
-	CmdStatsGroups     []model.StatsDesc
-	CurrentStatsGroups []model.StatsDesc
-	OtherStatsGroups   []model.StatsDesc
-	TubeStatFields     []model.StatsDesc
 }
 
 type serverStat struct {
@@ -161,10 +154,15 @@ func templateFuncMap() template.FuncMap {
 			s = strings.TrimPrefix(s, "cmd-")
 			return s
 		},
-		"defaultPriority": func() uint32 { return model.DefaultPriority },
-		"defaultDelay":    func() int { return model.DefaultDelay },
-		"defaultTTR":      func() int { return model.DefaultTTR },
-		"jobStatsOrder":   func() []string { return model.JobStatsOrder },
+		"defaultPriority":    func() uint32 { return model.DefaultPriority },
+		"defaultDelay":      func() int { return model.DefaultDelay },
+		"defaultTTR":        func() int { return model.DefaultTTR },
+		"jobStatsOrder":     func() []string { return model.JobStatsOrder },
+		"binlogStatsGroups": func() []model.StatsDesc { return model.BinlogStatsGroups },
+		"cmdStatsGroups":    func() []model.StatsDesc { return model.CmdStatsGroups },
+		"currentStatsGroups": func() []model.StatsDesc { return model.CurrentStatsGroups },
+		"otherStatsGroups":  func() []model.StatsDesc { return model.OtherStatsGroups },
+		"tubeStatFields":    func() []model.StatsDesc { return model.TubeStatFields },
 	}
 }
 
@@ -225,7 +223,7 @@ func parseTemplates(tmplFS fs.FS) (*templateSet, error) {
 
 func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, data *pageData) {
 	data.Version = h.cfg.Version
-	data.Conf = readCookies(r, h.cfg)
+	data.Conf = h.readConf(r)
 	data.PagePath = r.URL.Path
 
 	if f := getFlash(w, r); f != nil {

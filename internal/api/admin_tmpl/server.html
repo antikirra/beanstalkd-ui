@@ -61,12 +61,12 @@
           <button class="tab" data-tab="other">other</button>
         </div>
         <div class="tab-panel tab-panel-active" data-panel="current">
-          {{range $i, $f := .TubeStatFields}}{{if le $i 7}}
+          {{range $i, $f := tubeStatFields}}{{if le $i 7}}
           <label class="checkbox-label"><input type="checkbox" name="{{$f.Name}}" {{if contains $.TubeFilters $f.Name}}checked{{end}}> <b>{{$f.Name}}</b> <span class="text-muted">— {{$f.Desc}}</span></label>
           {{end}}{{end}}
         </div>
         <div class="tab-panel" data-panel="other">
-          {{range $i, $f := .TubeStatFields}}{{if gt $i 7}}
+          {{range $i, $f := tubeStatFields}}{{if gt $i 7}}
           <label class="checkbox-label"><input type="checkbox" name="{{$f.Name}}" {{if contains $.TubeFilters $f.Name}}checked{{end}}> <b>{{$f.Name}}</b> <span class="text-muted">— {{$f.Desc}}</span></label>
           {{end}}{{end}}
         </div>

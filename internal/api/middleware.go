@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -43,9 +44,22 @@ func (t *authThrottle) isThrottled(ip string) (bool, time.Duration) {
 	return true, remaining
 }
 
+const (
+	maxThrottleRecords = 1000
+	authRecordTTL      = 24 * time.Hour
+)
+
 func (t *authThrottle) onFailure(ip string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if len(t.records) >= maxThrottleRecords {
+		now := time.Now()
+		for k, rec := range t.records {
+			if now.Sub(rec.lastRetry) > authRecordTTL {
+				delete(t.records, k)
+			}
+		}
+	}
 	rec, ok := t.records[ip]
 	if !ok {
 		rec = &authRecord{}
@@ -60,6 +74,7 @@ func (t *authThrottle) onSuccess(ip string) {
 	defer t.mu.Unlock()
 	delete(t.records, ip)
 }
+
 
 // authMiddleware wraps a handler with HTTP Basic authentication and throttling.
 func authMiddleware(next http.Handler, username, password string, throttle *authThrottle, log *slog.Logger) http.Handler {
@@ -94,23 +109,12 @@ func authMiddleware(next http.Handler, username, password string, throttle *auth
 	})
 }
 
+const cspHeader = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+
 // securityHeaders sets protective HTTP headers including CSP.
 func securityHeaders(next http.Handler) http.Handler {
-	csp := strings.Join([]string{
-		"default-src 'none'",
-		"script-src 'self'",
-		"style-src 'self' 'unsafe-inline'",
-		"img-src 'self' data:",
-		"font-src 'self'",
-		"connect-src 'self'",
-		"frame-ancestors 'none'",
-		"base-uri 'self'",
-		"form-action 'self'",
-		"object-src 'none'",
-	}, "; ")
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", csp)
+		w.Header().Set("Content-Security-Policy", cspHeader)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -149,9 +153,9 @@ func recoveryMiddleware(next http.Handler, log *slog.Logger) http.Handler {
 }
 
 func remoteIP(r *http.Request) string {
-	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
 	}
-	return strings.Trim(ip, "[]")
+	return host
 }

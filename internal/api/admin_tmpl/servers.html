@@ -52,22 +52,22 @@
           <button class="tab" data-tab="other">other</button>
         </div>
         <div class="tab-panel tab-panel-active" data-panel="binlog">
-          {{range .BinlogStatsGroups}}
+          {{range binlogStatsGroups}}
           <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
           {{end}}
         </div>
         <div class="tab-panel" data-panel="cmd">
-          {{range .CmdStatsGroups}}
+          {{range cmdStatsGroups}}
           <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
           {{end}}
         </div>
         <div class="tab-panel" data-panel="current">
-          {{range .CurrentStatsGroups}}
+          {{range currentStatsGroups}}
           <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
           {{end}}
         </div>
         <div class="tab-panel" data-panel="other">
-          {{range .OtherStatsGroups}}
+          {{range otherStatsGroups}}
           <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
           {{end}}
         </div>

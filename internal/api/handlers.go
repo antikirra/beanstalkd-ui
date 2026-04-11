@@ -18,8 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/beanstalkd/go-beanstalk"
+
 	"github.com/antikirra/beanstalkd-ui/internal/config"
 	"github.com/antikirra/beanstalkd-ui/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/pool"
 )
 
 // Handlers holds all dependencies and mutable state for HTTP handlers.
@@ -27,7 +30,9 @@ type Handlers struct {
 	log        *slog.Logger
 	tmpl       *templateSet
 	cfg        *config.Config
+	cfgMu      sync.RWMutex
 	configPath string
+	pool       *pool.Manager
 
 	sampleJobs   model.SampleJobs
 	sampleJobsMu sync.RWMutex
@@ -45,17 +50,35 @@ func NewHandlers(log *slog.Logger, cfg *config.Config, configPath string, tmplFS
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
+	p := pool.New(pool.Config{})
 	return &Handlers{
 		log:        log,
 		tmpl:       tmpl,
 		cfg:        cfg,
 		configPath: configPath,
+		pool:       p,
 		sampleJobs: samples,
 		statsData: model.StatisticsData{
 			Server: make(map[string]map[string]map[string]*list.List),
 		},
 		notify: make(chan struct{}, 1),
 	}, nil
+}
+
+// Close shuts down the connection pool, closing all idle connections.
+func (h *Handlers) Close() {
+	h.pool.Close()
+}
+
+func (h *Handlers) readConf(r *http.Request) model.SelfConf {
+	h.cfgMu.RLock()
+	conf := readCookies(r, h.cfg)
+	h.cfgMu.RUnlock()
+	return conf
+}
+
+func (h *Handlers) saveCfg() error {
+	return config.Save(h.configPath, h.cfg)
 }
 
 // --- Cookie helpers ---
@@ -162,15 +185,11 @@ func compactUnique(s []string) []string {
 // --- Handlers ---
 
 func (h *Handlers) handleServers(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	h.render(w, r, "servers.html", &pageData{
-		PageTitle:          "Servers",
-		ServerStats:        h.serverStats(conf),
-		Filter:             conf.Filter,
-		BinlogStatsGroups:  model.BinlogStatsGroups,
-		CmdStatsGroups:     model.CmdStatsGroups,
-		CurrentStatsGroups: model.CurrentStatsGroups,
-		OtherStatsGroups:   model.OtherStatsGroups,
+		PageTitle:   "Servers",
+		ServerStats: h.serverStats(r.Context(), conf),
+		Filter:      conf.Filter,
 	})
 }
 
@@ -179,92 +198,103 @@ func (h *Handlers) handleSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) handleServersReload(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	h.renderFragment(w, "server_table_inner", &pageData{
-		ServerStats: h.serverStats(conf),
+		ServerStats: h.serverStats(r.Context(), conf),
 		Filter:      conf.Filter,
 		Conf:        conf,
 	})
 }
 
 func (h *Handlers) handleServerRemove(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	server := r.URL.Query().Get("server")
 	removeServerInCookie(conf, server, w)
+
+	h.cfgMu.Lock()
 	h.cfg.RemoveServer(server)
-	_ = config.Save(h.configPath, h.cfg)
+	_ = h.saveCfg()
+	h.cfgMu.Unlock()
+
+	h.pool.RemoveServer(server)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (h *Handlers) handleServer(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	q := r.URL.Query()
 	server := q.Get("server")
 
+	ctx := r.Context()
 	switch q.Get("action") {
 	case "reloader":
 		h.renderFragment(w, "tube_table_inner", &pageData{
-			TubeStats:     h.tubeStats(server),
+			TubeStats:     h.tubeStats(ctx, server),
 			TubeFilters:   conf.TubeFilters,
 			CurrentServer: server,
 			Conf:          conf,
 		})
 	case "clearTubes":
 		_ = r.ParseForm()
-		clearTubes(r.Context(), server, r.Form)
+		h.clearTubes(ctx, server, r.Form)
 		hxToast(w, "success", "Tubes cleared", false)
 		w.WriteHeader(http.StatusNoContent)
 	default:
+		ts := h.tubeStats(ctx, server)
+		tubes := make([]string, len(ts))
+		for i, t := range ts {
+			tubes[i] = t.Name
+		}
 		h.render(w, r, "server.html", &pageData{
 			PageTitle:     server,
 			CurrentServer: server,
-			TubeStats:     h.tubeStats(server),
+			TubeStats:     ts,
 			TubeFilters:   conf.TubeFilters,
-			Tubes:         listTubesSorted(server),
-			TubeStatFields: model.TubeStatFields,
+			Tubes:         tubes,
 		})
 	}
 }
 
 func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	q := r.URL.Query()
 	server := q.Get("server")
 	tube := q.Get("tube")
 
+	ctx := r.Context()
 	switch q.Get("action") {
 	case "addjob":
-		addJob(server,
+		h.addJob(ctx, server,
 			r.PostFormValue("tubeName"), r.PostFormValue("tubeData"),
 			r.PostFormValue("tubePriority"), r.PostFormValue("tubeDelay"), r.PostFormValue("tubeTtr"))
 		hxToast(w, "success", "Job added", true)
 		w.WriteHeader(http.StatusNoContent)
 	case "search":
 		searchLimit, _ := strconv.Atoi(q.Get("limit"))
-		searchResults := searchTube(server, tube, searchLimit, q.Get("searchStr"))
-		h.render(w, r, "tube.html", h.buildTubeData(conf, server, tube, searchResults, q.Get("searchStr"), q.Get("limit")))
+		searchResults := h.searchTube(ctx, server, tube, searchLimit, q.Get("searchStr"))
+		h.render(w, r, "tube.html", h.buildTubeData(ctx, conf, server, tube, searchResults, q.Get("searchStr"), q.Get("limit")))
 	case "addSample":
 		_ = r.ParseForm()
-		h.addSampleFromJob(server, r.Form, w)
+		h.addSampleFromJob(ctx, server, r.Form, w)
 	case "kick":
 		if !requirePOST(w, r) {
 			return
 		}
-		kick(server, tube, r.FormValue("count"))
+		h.kick(ctx, server, tube, r.FormValue("count"))
 		setFlash(w, "success", "Jobs kicked")
 		h.redirectToTube(w, r, server, tube)
 	case "kickJob":
 		if !requirePOST(w, r) {
 			return
 		}
-		kickJob(server, q.Get("jobid"))
+		h.kickJob(ctx, server, q.Get("jobid"))
 		setFlash(w, "success", "Job kicked")
 		h.redirectToTube(w, r, server, tube)
 	case "pause":
 		if !requirePOST(w, r) {
 			return
 		}
-		pause(server, tube, q.Get("count"), conf.TubePauseSeconds)
+		h.pause(ctx, server, tube, q.Get("count"), conf.TubePauseSeconds)
 		setFlash(w, "success", "Tube pause updated")
 		h.redirectToTube(w, r, server, tube)
 	case "moveJobsTo":
@@ -275,36 +305,36 @@ func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
 		if destTube == "" {
 			destTube = tube
 		}
-		moveJobsTo(r.Context(), server, tube, destTube, q.Get("state"), q.Get("destState"))
+		h.moveJobsTo(ctx, server, tube, destTube, q.Get("state"), q.Get("destState"))
 		setFlash(w, "success", "Jobs moved")
 		h.redirectToTube(w, r, server, destTube)
 	case "deleteAll":
 		if !requirePOST(w, r) {
 			return
 		}
-		deleteAll(r.Context(), server, tube, q.Get("state"))
+		h.deleteAll(ctx, server, tube, q.Get("state"))
 		setFlash(w, "success", "All jobs deleted")
 		h.redirectToTube(w, r, server, tube)
 	case "deleteJob":
 		if !requirePOST(w, r) {
 			return
 		}
-		deleteJob(server, q.Get("jobid"))
+		h.deleteJob(ctx, server, q.Get("jobid"))
 		setFlash(w, "success", "Job deleted")
 		h.redirectToTube(w, r, server, tube)
 	case "loadSample":
 		if !requirePOST(w, r) {
 			return
 		}
-		h.loadSample(server, tube, q.Get("key"))
+		h.loadSample(ctx, server, tube, q.Get("key"))
 		setFlash(w, "success", "Sample loaded")
 		h.redirectToTube(w, r, server, tube)
 	case "reloader":
-		td := h.buildTubeData(conf, server, tube, nil, "", "")
+		td := h.buildTubeData(ctx, conf, server, tube, nil, "", "")
 		td.Conf = conf
 		h.renderFragment(w, "tube_content_inner", td)
 	default:
-		h.render(w, r, "tube.html", h.buildTubeData(conf, server, tube, nil, "", ""))
+		h.render(w, r, "tube.html", h.buildTubeData(ctx, conf, server, tube, nil, "", ""))
 	}
 }
 
@@ -313,7 +343,7 @@ func (h *Handlers) redirectToTube(w http.ResponseWriter, r *http.Request, server
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
-func (h *Handlers) buildTubeData(conf model.SelfConf, server, tube string, searchResults []model.SearchResult, searchStr, searchLimit string) *pageData {
+func (h *Handlers) buildTubeData(ctx context.Context, conf model.SelfConf, server, tube string, searchResults []model.SearchResult, searchStr, searchLimit string) *pageData {
 	data := &pageData{
 		PageTitle:     tube + " — " + server,
 		CurrentServer: server,
@@ -325,40 +355,55 @@ func (h *Handlers) buildTubeData(conf model.SelfConf, server, tube string, searc
 		SearchLimit:   searchLimit,
 	}
 
-	conn, err := dialBeanstalk(server)
-	if err != nil {
-		return data
-	}
-	defer conn.Close()
+	_ = h.pool.WithConn(ctx, server, pool.ReadPool, func(conn *beanstalk.Conn) error {
+		t := newTube(conn, tube)
 
-	t := newTube(conn, tube)
-	data.TubeInfo, _ = t.Stats()
-	data.Tubes, _ = conn.ListTubes()
-	slices.Sort(data.Tubes)
-
-	if data.TubeInfo != nil {
-		data.PauseSeconds = data.TubeInfo["pause-time-left"]
-	}
-
-	// Peek jobs for showcase.
-	for _, p := range []struct {
-		peek   func() (uint64, []byte, error)
-		target **jobData
-	}{
-		{t.PeekReady, &data.ReadyJob},
-		{t.PeekDelayed, &data.DelayedJob},
-		{t.PeekBuried, &data.BuriedJob},
-	} {
-		id, body, err := p.peek()
-		if err != nil || body == nil {
-			continue
+		info, err := t.Stats()
+		if err != nil && pool.IsConnError(err) {
+			return err
 		}
-		stats, err := conn.StatsJob(id)
-		if err != nil {
-			continue
+		data.TubeInfo = info
+
+		data.Tubes, err = conn.ListTubes()
+		if err != nil && pool.IsConnError(err) {
+			return err
 		}
-		*p.target = &jobData{ID: id, Data: string(body), Stats: stats}
-	}
+		slices.Sort(data.Tubes)
+
+		if data.TubeInfo != nil {
+			data.PauseSeconds = data.TubeInfo["pause-time-left"]
+		}
+
+		// Peek jobs for showcase.
+		for _, p := range []struct {
+			peek   func() (uint64, []byte, error)
+			target **jobData
+		}{
+			{t.PeekReady, &data.ReadyJob},
+			{t.PeekDelayed, &data.DelayedJob},
+			{t.PeekBuried, &data.BuriedJob},
+		} {
+			id, body, err := p.peek()
+			if err != nil {
+				if pool.IsConnError(err) {
+					return err
+				}
+				continue
+			}
+			if body == nil {
+				continue
+			}
+			stats, err := conn.StatsJob(id)
+			if err != nil {
+				if pool.IsConnError(err) {
+					return err
+				}
+				continue
+			}
+			*p.target = &jobData{ID: id, Data: string(body), Stats: stats}
+		}
+		return nil
+	})
 
 	// Sample jobs for this tube.
 	h.sampleJobsMu.RLock()
@@ -387,7 +432,7 @@ func (h *Handlers) buildTubeData(conf model.SelfConf, server, tube string, searc
 // --- Sample handlers ---
 
 func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	q := r.URL.Query()
 	server := q.Get("server")
 
@@ -406,8 +451,7 @@ func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
 		h.render(w, r, "sample_edit.html", &pageData{
 			PageTitle:     "New Sample",
 			CurrentServer: server,
-			Servers:       conf.Servers,
-			ServerTubes:   h.serverTubesMap(conf),
+			ServerTubes:   h.serverTubesMap(r.Context(), conf),
 		})
 	case "editSample":
 		key := q.Get("key")
@@ -420,15 +464,14 @@ func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
 			PageTitle:     title,
 			CurrentServer: server,
 			SampleJob:     job,
-			Servers:       conf.Servers,
-			ServerTubes:   h.serverTubesMap(conf),
+			ServerTubes:   h.serverTubesMap(r.Context(), conf),
 		})
 	case "actionNewSample":
 		_ = r.ParseForm()
 		h.upsertSample("", r.Form, w, r)
 	case "actionEditSample":
 		_ = r.ParseForm()
-		h.editSample(r.Form, q.Get("key"), w, r)
+		h.upsertSample(q.Get("key"), r.Form, w, r)
 	case "deleteSample":
 		if !requirePOST(w, r) {
 			return
@@ -443,14 +486,14 @@ func (h *Handlers) handleSamples(w http.ResponseWriter, r *http.Request) {
 // --- Statistics handlers ---
 
 func (h *Handlers) handleStatistics(w http.ResponseWriter, r *http.Request) {
-	conf := readCookies(r, h.cfg)
+	conf := h.readConf(r)
 	q := r.URL.Query()
 	server := q.Get("server")
 	tube := q.Get("tube")
 
 	switch q.Get("action") {
 	case "preference":
-		data := h.buildStatsPrefData(conf)
+		data := h.buildStatsPrefData(r.Context(), conf)
 		data.PageTitle = "Statistics Preference"
 		h.render(w, r, "statistics_pref.html", data)
 	case "save":
@@ -469,51 +512,71 @@ func (h *Handlers) handleStatistics(w http.ResponseWriter, r *http.Request) {
 
 // --- Data fetching helpers ---
 
-func (h *Handlers) serverStats(conf model.SelfConf) []serverStat {
-	stats := make([]serverStat, 0, len(conf.Servers))
-	for _, addr := range conf.Servers {
-		stats = append(stats, fetchServerStat(addr))
+func (h *Handlers) serverStats(ctx context.Context, conf model.SelfConf) []serverStat {
+	stats := make([]serverStat, len(conf.Servers))
+	var wg sync.WaitGroup
+	for i, addr := range conf.Servers {
+		wg.Add(1)
+		go func(i int, addr string) {
+			defer wg.Done()
+			stats[i] = h.fetchServerStat(ctx, addr)
+		}(i, addr)
 	}
+	wg.Wait()
 	return stats
 }
 
-func fetchServerStat(addr string) serverStat {
+func (h *Handlers) fetchServerStat(ctx context.Context, addr string) serverStat {
 	ss := serverStat{Addr: addr}
-	conn, err := dialBeanstalk(addr)
-	if err != nil {
-		return ss
-	}
-	defer conn.Close()
-	ss.Online = true
-	ss.Stats, _ = conn.Stats()
+	_ = h.pool.WithConn(ctx, addr, pool.ReadPool, func(conn *beanstalk.Conn) error {
+		ss.Online = true
+		var err error
+		ss.Stats, err = conn.Stats()
+		return err
+	})
 	return ss
 }
 
-func (h *Handlers) tubeStats(server string) []tubeStat {
-	conn, err := dialBeanstalk(server)
-	if err != nil {
+func (h *Handlers) tubeStats(ctx context.Context, server string) []tubeStat {
+	var stats []tubeStat
+	_ = h.pool.WithConn(ctx, server, pool.ReadPool, func(conn *beanstalk.Conn) error {
+		tubes, err := conn.ListTubes()
+		if err != nil {
+			return err
+		}
+		slices.Sort(tubes)
+
+		stats = make([]tubeStat, 0, len(tubes))
+		for _, name := range tubes {
+			ts := tubeStat{Name: name}
+			t := newTube(conn, name)
+			s, err := t.Stats()
+			if err != nil && pool.IsConnError(err) {
+				return err
+			}
+			ts.Stats = s
+			stats = append(stats, ts)
+		}
 		return nil
-	}
-	defer conn.Close()
-
-	tubes, _ := conn.ListTubes()
-	slices.Sort(tubes)
-
-	stats := make([]tubeStat, 0, len(tubes))
-	for _, name := range tubes {
-		ts := tubeStat{Name: name}
-		t := newTube(conn, name)
-		ts.Stats, _ = t.Stats()
-		stats = append(stats, ts)
-	}
+	})
 	return stats
 }
 
-func (h *Handlers) serverTubesMap(conf model.SelfConf) map[string][]string {
+func (h *Handlers) serverTubesMap(ctx context.Context, conf model.SelfConf) map[string][]string {
 	result := make(map[string][]string, len(conf.Servers))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for _, server := range conf.Servers {
-		result[server] = listTubesSorted(server)
+		wg.Add(1)
+		go func(server string) {
+			defer wg.Done()
+			tubes := h.listTubesSorted(ctx, server)
+			mu.Lock()
+			result[server] = tubes
+			mu.Unlock()
+		}(server)
 	}
+	wg.Wait()
 	return result
 }
 
@@ -548,18 +611,10 @@ func (h *Handlers) findSampleByKey(key string) *model.SampleJob {
 	return nil
 }
 
-func (h *Handlers) addSampleFromJob(server string, data url.Values, w http.ResponseWriter) {
+func (h *Handlers) addSampleFromJob(ctx context.Context, server string, data url.Values, w http.ResponseWriter) {
 	sampleName := data.Get("addsamplename")
 	if sampleName == "" {
 		hxError(w, "Sample name required")
-		return
-	}
-
-	h.sampleJobsMu.RLock()
-	nameExists := h.sampleNameExists(sampleName)
-	h.sampleJobsMu.RUnlock()
-	if nameExists {
-		hxError(w, "Sample with this name already exists")
 		return
 	}
 
@@ -570,55 +625,37 @@ func (h *Handlers) addSampleFromJob(server string, data url.Values, w http.Respo
 		return
 	}
 
-	conn, err := dialBeanstalk(server)
-	if err != nil {
-		hxError(w, "Connect to beanstalkd failed")
-		return
-	}
-	defer conn.Close()
-
-	body, err := conn.Peek(uint64(jobID))
-	if err != nil {
-		hxError(w, "Read job content failed")
-		return
-	}
-	jobStats, err := conn.StatsJob(uint64(jobID))
-	if err != nil {
-		hxError(w, "Read job stats failed")
-		return
-	}
+	var body []byte
 	sampleTTR := model.DefaultTTR
-	if ttr, err := strconv.Atoi(jobStats["ttr"]); err == nil {
-		sampleTTR = ttr
-	}
-
-	key := randToken()
-	var tubes []string
-	for k := range data {
-		if strings.HasPrefix(k, "tubes[") {
-			tubes = append(tubes, parseTubeName(k))
+	connErr := h.pool.WithConn(ctx, server, pool.ReadPool, func(conn *beanstalk.Conn) error {
+		var err error
+		body, err = conn.Peek(uint64(jobID))
+		if err != nil {
+			return fmt.Errorf("peek: %w", err)
 		}
-	}
-	h.sampleJobsMu.Lock()
-	if h.sampleNameExists(sampleName) {
-		h.sampleJobsMu.Unlock()
-		hxError(w, "Sample with this name already exists")
+		jobStats, err := conn.StatsJob(uint64(jobID))
+		if err != nil {
+			return fmt.Errorf("stats: %w", err)
+		}
+		if ttr, err := strconv.Atoi(jobStats["ttr"]); err == nil {
+			sampleTTR = ttr
+		}
+		return nil
+	})
+	if connErr != nil {
+		hxError(w, "Read job data failed")
 		return
 	}
-	for _, t := range tubes {
-		h.addSampleTube(t, key)
-	}
-	h.sampleJobs.Jobs = append(h.sampleJobs.Jobs, model.SampleJob{
-		Key:   key,
+
+	job := model.SampleJob{
+		Key:   randToken(),
 		Name:  sampleName,
-		Tubes: tubes,
+		Tubes: parseTubesFromForm(data),
 		Data:  string(body),
 		TTR:   sampleTTR,
-	})
-	err = h.saveSample()
-	h.sampleJobsMu.Unlock()
-	if err != nil {
-		hxError(w, "Failed to save sample")
+	}
+	if err := h.replaceSample("", job); err != nil {
+		hxError(w, err.Error())
 		return
 	}
 	hxToast(w, "success", "Sample saved", true)
@@ -644,13 +681,17 @@ func (h *Handlers) addSampleTube(tube, key string) {
 	})
 }
 
+// saveSample persists sample jobs to config. Caller must hold sampleJobsMu.
 func (h *Handlers) saveSample() error {
 	data, err := json.Marshal(h.sampleJobs)
 	if err != nil {
 		return err
 	}
+	h.cfgMu.Lock()
 	h.cfg.Sample.Storage = string(data)
-	return config.Save(h.configPath, h.cfg)
+	err = h.saveCfg()
+	h.cfgMu.Unlock()
+	return err
 }
 
 // removeSampleByKey removes a sample job from both Jobs and Tubes lists.
@@ -676,29 +717,33 @@ func (h *Handlers) deleteSamples(key string) {
 	h.sampleJobsMu.Unlock()
 }
 
-func (h *Handlers) editSample(f url.Values, key string, w http.ResponseWriter, r *http.Request) {
+// replaceSample atomically removes an old sample (if removeKey is set) and inserts a new one.
+// Caller must NOT hold sampleJobsMu.
+func (h *Handlers) replaceSample(removeKey string, job model.SampleJob) error {
 	h.sampleJobsMu.Lock()
-	h.removeSampleByKey(key)
-	_ = h.saveSample()
-	h.sampleJobsMu.Unlock()
-
-	h.upsertSample(key, f, w, r)
+	defer h.sampleJobsMu.Unlock()
+	if removeKey != "" {
+		h.removeSampleByKey(removeKey)
+	}
+	if h.sampleNameExists(job.Name) {
+		return fmt.Errorf("Sample with this name already exists")
+	}
+	for _, t := range job.Tubes {
+		h.addSampleTube(t, job.Key)
+	}
+	h.sampleJobs.Jobs = append(h.sampleJobs.Jobs, job)
+	return h.saveSample()
 }
 
-func (h *Handlers) upsertSample(existingKey string, f url.Values, w http.ResponseWriter, r *http.Request) {
-	key := existingKey
+func (h *Handlers) upsertSample(replaceKey string, f url.Values, w http.ResponseWriter, r *http.Request) {
+	key := replaceKey
 	if key == "" {
 		key = randToken()
 	}
 	name := f.Get("name")
 	body := f.Get("jobdata")
 	ttr := f.Get("ttr")
-	var tubes []string
-	for k := range f {
-		if strings.HasPrefix(k, "tubes[") {
-			tubes = append(tubes, parseTubeName(k))
-		}
-	}
+	tubes := parseTubesFromForm(f)
 	if len(tubes) == 0 || name == "" || body == "" || ttr == "" {
 		flashRedirect(w, r, "error", "Required fields are not set", "/sample?action=newSample")
 		return
@@ -708,46 +753,28 @@ func (h *Handlers) upsertSample(existingKey string, f url.Values, w http.Respons
 		flashRedirect(w, r, "error", "TTR must be a number", "/sample?action=newSample")
 		return
 	}
-	h.sampleJobsMu.Lock()
-	if h.sampleNameExists(name) {
-		h.sampleJobsMu.Unlock()
-		flashRedirect(w, r, "error", "Sample with this name already exists", "/sample?action=newSample")
-		return
-	}
-	for _, t := range tubes {
-		h.addSampleTube(t, key)
-	}
-	h.sampleJobs.Jobs = append(h.sampleJobs.Jobs, model.SampleJob{
-		Key:   key,
-		Name:  name,
-		Tubes: tubes,
-		Data:  body,
-		TTR:   sampleTTR,
-	})
-	err = h.saveSample()
-	h.sampleJobsMu.Unlock()
-	if err != nil {
-		flashRedirect(w, r, "error", "Failed to save sample", "/sample?action=newSample")
+	if err := h.replaceSample(replaceKey, model.SampleJob{
+		Key: key, Name: name, Tubes: tubes, Data: body, TTR: sampleTTR,
+	}); err != nil {
+		flashRedirect(w, r, "error", err.Error(), "/sample?action=newSample")
 		return
 	}
 	flashRedirect(w, r, "success", "Sample saved", "/sample?action=manageSamples")
 }
 
-func (h *Handlers) loadSample(server, tube, key string) {
+func (h *Handlers) loadSample(ctx context.Context, server, tube, key string) {
 	job := h.findSampleByKey(key)
 	if job == nil || job.Data == "" {
 		return
 	}
-	conn, err := dialBeanstalk(server)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	_, _ = newTube(conn, tube).Put(
-		[]byte(job.Data), model.DefaultPriority,
-		time.Duration(model.DefaultDelay)*time.Second,
-		time.Duration(job.TTR)*time.Second,
-	)
+	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+		_, err := newTube(conn, tube).Put(
+			[]byte(job.Data), model.DefaultPriority,
+			time.Duration(model.DefaultDelay)*time.Second,
+			time.Duration(job.TTR)*time.Second,
+		)
+		return err
+	})
 }
 
 // --- Statistics ---
@@ -755,12 +782,7 @@ func (h *Handlers) loadSample(server, tube, key string) {
 func (h *Handlers) statisticPreferenceSave(f url.Values, w http.ResponseWriter, r *http.Request) {
 	collection := f.Get("collection")
 	frequency := f.Get("frequency")
-	var tubes []string
-	for k := range f {
-		if strings.HasPrefix(k, "tubes[") {
-			tubes = append(tubes, parseTubeName(k))
-		}
-	}
+	tubes := parseTubesFromForm(f)
 	const statsPrefURL = "/statistics?action=preference"
 	if len(tubes) == 0 || collection == "" || frequency == "" {
 		flashRedirect(w, r, "error", "Required fields are not set", statsPrefURL)
@@ -814,7 +836,7 @@ func (h *Handlers) saveStatisticsConfig(collection, frequency string, tubes []st
 	return nil
 }
 
-func (h *Handlers) buildStatsPrefData(conf model.SelfConf) *pageData {
+func (h *Handlers) buildStatsPrefData(ctx context.Context, conf model.SelfConf) *pageData {
 	h.statsConfigMu.RLock()
 	frequency := h.statsConfig.Frequency
 	collection := h.statsConfig.Collection
@@ -823,11 +845,7 @@ func (h *Handlers) buildStatsPrefData(conf model.SelfConf) *pageData {
 		frequency = 300
 	}
 
-	// Collect tube lists from all servers.
-	serverTubes := make(map[string][]string, len(conf.Servers))
-	for _, server := range conf.Servers {
-		serverTubes[server] = listTubesSorted(server)
-	}
+	serverTubes := h.serverTubesMap(ctx, conf)
 
 	// Single lock to check which tubes are being monitored.
 	h.statsData.RLock()
@@ -866,28 +884,30 @@ func (h *Handlers) StatisticsCollector(ctx context.Context) {
 			freq = h.statsFrequency()
 			ticker = time.NewTicker(time.Duration(freq) * time.Second)
 		case <-ticker.C:
-			h.statsConfigMu.RLock()
-			collection := h.statsConfig.Collection
-			h.statsConfigMu.RUnlock()
-			if collection == 0 {
-				continue
-			}
-
-			h.statsData.RLock()
-			serversCopy := make(map[string][]string)
-			for k, v := range h.statsData.Server {
-				for t := range v {
-					serversCopy[k] = append(serversCopy[k], t)
-				}
-			}
-			h.statsData.RUnlock()
-
-			for k, tubes := range serversCopy {
-				for _, t := range tubes {
-					h.collectTubeStats(k, t, collection)
-				}
-			}
+			h.collectAllStats(ctx)
 		}
+	}
+}
+
+func (h *Handlers) collectAllStats(ctx context.Context) {
+	h.statsConfigMu.RLock()
+	collection := h.statsConfig.Collection
+	h.statsConfigMu.RUnlock()
+	if collection == 0 {
+		return
+	}
+
+	h.statsData.RLock()
+	serversCopy := make(map[string][]string)
+	for k, v := range h.statsData.Server {
+		for t := range v {
+			serversCopy[k] = append(serversCopy[k], t)
+		}
+	}
+	h.statsData.RUnlock()
+
+	for server, tubes := range serversCopy {
+		h.collectServerStats(ctx, server, tubes, collection)
 	}
 }
 
@@ -898,28 +918,45 @@ func (h *Handlers) statsFrequency() int {
 	return max(f, 1)
 }
 
-func (h *Handlers) collectTubeStats(server, tube string, collection int) {
-	conn, err := dialBeanstalk(server)
-	if err != nil {
-		return
+func (h *Handlers) collectServerStats(ctx context.Context, server string, tubes []string, collection int) {
+	type tubeData struct {
+		tube   string
+		values map[string]int
 	}
-	defer conn.Close()
 
-	statsMap, err := newTube(conn, tube).Stats()
-	if err != nil {
-		return
-	}
-	now := time.Now()
-	values := make(map[string]int)
-	for _, f := range model.StatisticsFields {
-		val, err := strconv.Atoi(statsMap[f.Stat])
-		if err != nil {
-			continue
+	var collected []tubeData
+	_ = h.pool.WithConn(ctx, server, pool.ReadPool, func(conn *beanstalk.Conn) error {
+		for _, tube := range tubes {
+			statsMap, err := newTube(conn, tube).Stats()
+			if err != nil {
+				if pool.IsConnError(err) {
+					return err
+				}
+				continue
+			}
+			values := make(map[string]int)
+			for _, f := range model.StatisticsFields {
+				val, err := strconv.Atoi(statsMap[f.Stat])
+				if err != nil {
+					continue
+				}
+				values[f.Key] = val
+			}
+			if len(values) > 0 {
+				collected = append(collected, tubeData{tube: tube, values: values})
+			}
 		}
-		values[f.Key] = val
-	}
-	if len(values) == 0 {
+		return nil
+	})
+
+	if len(collected) == 0 {
 		return
+	}
+
+	now := time.Now()
+	ts := []int{
+		now.Year(), int(now.Month()), now.Day(),
+		now.Hour(), now.Minute(), now.Second(),
 	}
 
 	h.statsData.Lock()
@@ -928,22 +965,20 @@ func (h *Handlers) collectTubeStats(server, tube string, collection int) {
 	if srvMap == nil {
 		return
 	}
-	tubeMap := srvMap[tube]
-	if tubeMap == nil {
-		return
-	}
-	ts := []int{
-		now.Year(), int(now.Month()), now.Day(),
-		now.Hour(), now.Minute(), now.Second(),
-	}
-	for k, val := range values {
-		if tubeMap[k] == nil {
-			tubeMap[k] = list.New()
+	for _, td := range collected {
+		tubeMap := srvMap[td.tube]
+		if tubeMap == nil {
+			continue
 		}
-		if tubeMap[k].Len() >= collection {
-			tubeMap[k].Remove(tubeMap[k].Back())
+		for k, val := range td.values {
+			if tubeMap[k] == nil {
+				tubeMap[k] = list.New()
+			}
+			if tubeMap[k].Len() >= collection {
+				tubeMap[k].Remove(tubeMap[k].Back())
+			}
+			tubeMap[k].PushFront(append(append([]int{}, ts...), val))
 		}
-		tubeMap[k].PushFront(append(ts, val))
 	}
 }
 
@@ -1012,9 +1047,15 @@ func requirePOST(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// parseTubeName extracts tube name from form key "tubes[name]" → "name".
-func parseTubeName(key string) string {
-	return strings.TrimSuffix(strings.TrimPrefix(key, "tubes["), "]")
+// parseTubesFromForm extracts tube names from form keys like "tubes[name]".
+func parseTubesFromForm(f url.Values) []string {
+	var tubes []string
+	for k := range f {
+		if strings.HasPrefix(k, "tubes[") {
+			tubes = append(tubes, strings.TrimSuffix(strings.TrimPrefix(k, "tubes["), "]"))
+		}
+	}
+	return tubes
 }
 
 func randToken() string {

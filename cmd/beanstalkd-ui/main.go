@@ -77,6 +77,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+	h.Close()
 }
 
 func openPage(cfg *config.Config) {

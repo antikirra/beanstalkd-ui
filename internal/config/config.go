@@ -97,13 +97,17 @@ func Read(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the configuration back to the TOML file.
+// Save writes the configuration back to the TOML file atomically.
 func Save(path string, cfg *Config) error {
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // RemoveServer removes a server address from the config.
