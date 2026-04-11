@@ -60,7 +60,7 @@ type StatsConfig struct {
 
 // StatisticsData holds time-series statistics data protected by a mutex.
 type StatisticsData struct {
-	*sync.RWMutex
+	sync.RWMutex
 	Server map[string]map[string]map[string]*list.List
 }
 
@@ -71,23 +71,24 @@ type SearchResult struct {
 	ID    uint64
 }
 
-// UpdateTags is the response structure from the GitHub tags API.
-type UpdateTags []struct {
-	Name string `json:"name"`
-}
-
 // JobStatsOrder defines the display order for job statistics.
 var JobStatsOrder = []string{
 	"id", "tube", "state", "pri", "age", "delay", "ttr",
 	"time-left", "file", "reserves", "timeouts", "releases", "buries", "kicks",
 }
 
+// StatField maps a display key to a beanstalkd stat name.
+type StatField struct {
+	Key  string // display key, e.g. "ready"
+	Stat string // beanstalkd stat name, e.g. "current-jobs-ready"
+}
+
 // StatisticsFields defines which tube stats to collect for time-series.
-var StatisticsFields = []map[string]string{
-	{"ready": "current-jobs-ready"},
-	{"delayed": "current-jobs-delayed"},
-	{"reserved": "current-jobs-reserved"},
-	{"buried": "current-jobs-buried"},
+var StatisticsFields = []StatField{
+	{"ready", "current-jobs-ready"},
+	{"delayed", "current-jobs-delayed"},
+	{"reserved", "current-jobs-reserved"},
+	{"buried", "current-jobs-buried"},
 }
 
 // Server stats filter groups.

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/xuri/aurora/internal/model"
@@ -62,10 +63,9 @@ type pageData struct {
 	Conf model.SelfConf
 
 	// Misc.
-	PageTitle   string
-	PagePath    string
-	Version     float64
-	UpdateAlert string
+	PageTitle string
+	PagePath  string
+	Version   float64
 
 	// Stats filter reference data.
 	BinlogStatsGroups  []map[string]string
@@ -105,23 +105,6 @@ func templateFuncMap() template.FuncMap {
 		"serverURL": func(server string) string {
 			return fmt.Sprintf("/server?server=%s", server)
 		},
-		"safeHTML": func(s string) template.HTML {
-			return template.HTML(s)
-		},
-		"prettyJSON": func(s string) string {
-			var out bytes.Buffer
-			if err := json.Indent(&out, []byte(s), "", "  "); err != nil {
-				return s
-			}
-			return out.String()
-		},
-		"base64Decode": func(s string) string {
-			data, err := base64.StdEncoding.DecodeString(s)
-			if err != nil {
-				return s
-			}
-			return string(data)
-		},
 		"formatJobData": func(conf model.SelfConf, body string) string {
 			data := body
 			if !conf.DisableJSONDecode {
@@ -143,21 +126,7 @@ func templateFuncMap() template.FuncMap {
 			}
 			return ""
 		},
-		"contains": func(slice []string, item string) bool {
-			for _, v := range slice {
-				if v == item {
-					return true
-				}
-			}
-			return false
-		},
-		"seq": func(n int) []int {
-			s := make([]int, n)
-			for i := range s {
-				s[i] = i
-			}
-			return s
-		},
+		"contains": slices.Contains[[]string, string],
 		"add": func(a, b int) int { return a + b },
 		"dict": func(pairs ...any) map[string]any {
 			m := make(map[string]any, len(pairs)/2)
@@ -252,10 +221,6 @@ func parseTemplates(tmplFS fs.FS) (*templateSet, error) {
 	}
 
 	return &templateSet{pages: pages, fragments: fragments}, nil
-}
-
-func isHTMX(r *http.Request) bool {
-	return r.Header.Get("HX-Request") == "true"
 }
 
 func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, data *pageData) {

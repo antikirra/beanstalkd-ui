@@ -2,18 +2,18 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 )
 
-const (
-	Version   = 2.2
-	UpdateURL = "https://api.github.com/repos/xuri/aurora/tags"
-)
+const Version = 2.2
 
 const FileTemplate = `servers = []
 listen = "127.0.0.1:3000"
@@ -81,13 +81,13 @@ func ParseFlags() string {
 // Read loads the configuration from the given TOML file.
 // Creates a default config file if it does not exist.
 func Read(path string) (*Config, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, []byte(FileTemplate), 0644); err != nil {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := os.WriteFile(path, []byte(FileTemplate), 0o644); err != nil {
 			return nil, err
 		}
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+		data = []byte(FileTemplate)
+	} else if err != nil {
 		return nil, err
 	}
 	var cfg Config
@@ -103,16 +103,12 @@ func Save(path string, cfg *Config) error {
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0644)
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 // RemoveServer removes a server address from the config.
 func (c *Config) RemoveServer(server string) {
-	filtered := make([]string, 0, len(c.Servers))
-	for _, v := range c.Servers {
-		if v != server {
-			filtered = append(filtered, v)
-		}
-	}
-	c.Servers = filtered
+	c.Servers = slices.DeleteFunc(c.Servers, func(s string) bool {
+		return s == server
+	})
 }

@@ -1,16 +1,17 @@
 FROM golang:1.26-alpine AS builder
 
-RUN apk -U upgrade --no-cache && apk add --no-cache build-base git
+RUN apk add --no-cache build-base git
 
-COPY . /tmp/aurora
-RUN cd /tmp/aurora && go build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /aurora ./cmd/aurora
 
-FROM alpine
+FROM alpine:3.21
+COPY --from=builder /aurora /usr/local/bin/aurora
 
-COPY --from=builder /tmp/aurora/aurora /usr/bin/
-COPY --from=builder /tmp/aurora/aurora.toml /etc/
-
-RUN sed -i "s/127.0.0.1/0.0.0.0/g" /etc/aurora.toml
+RUN printf 'servers = ["beanstalkd:11300"]\nlisten = "0.0.0.0:3000"\nversion = 2.2\n\n[openpage]\nenabled = false\n\n[auth]\nenabled = false\npassword = "password"\nusername = "admin"\n\n[sample]\nstorage = "{}"\n' > /etc/aurora.toml
 
 EXPOSE 3000
-ENTRYPOINT ["/usr/bin/aurora", "-c", "/etc/aurora.toml"]
+ENTRYPOINT ["aurora", "-c", "/etc/aurora.toml"]

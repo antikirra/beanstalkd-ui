@@ -39,7 +39,18 @@ function updateSidebarActive() {
 document.addEventListener('htmx:pushedIntoHistory', updateSidebarActive);
 updateSidebarActive();
 
-/* --- Modal open/close via data attributes --- */
+/* --- Modal helpers --- */
+function closeAllModals() {
+  document.querySelectorAll('.modal.open').forEach(function (m) {
+    m.classList.remove('open');
+  });
+}
+
+function closeModal(el) {
+  var modal = el.closest('.modal');
+  if (modal) modal.classList.remove('open');
+}
+
 document.addEventListener('click', function (e) {
   var opener = e.target.closest('[data-modal-open]');
   if (opener) {
@@ -54,23 +65,17 @@ document.addEventListener('click', function (e) {
   }
 
   if (e.target.closest('[data-modal-close]')) {
-    var modal = e.target.closest('.modal');
-    if (modal) modal.classList.remove('open');
+    closeModal(e.target);
     return;
   }
 
   if (e.target.classList.contains('modal-backdrop')) {
-    var modal = e.target.closest('.modal');
-    if (modal) modal.classList.remove('open');
+    closeModal(e.target);
   }
 });
 
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape') {
-    document.querySelectorAll('.modal.open').forEach(function (m) {
-      m.classList.remove('open');
-    });
-  }
+  if (e.key === 'Escape') closeAllModals();
 });
 
 /* --- Dropdown toggle --- */
@@ -98,35 +103,28 @@ function showToast(type, message) {
     '<span>' + message + '</span>' +
     '<button class="toast-close" data-modal-close>×</button>';
   c.appendChild(t);
+  autoDismissToast(t);
+}
+
+function autoDismissToast(t) {
   setTimeout(function () {
     t.classList.add('toast-exit');
     setTimeout(function () { t.remove(); }, 500);
   }, 4000);
 }
 
-var toastObs = new MutationObserver(function (muts) {
-  muts.forEach(function (m) {
-    m.addedNodes.forEach(function (n) {
-      if (n.classList && n.classList.contains('toast')) {
-        setTimeout(function () {
-          n.classList.add('toast-exit');
-          setTimeout(function () { n.remove(); }, 500);
-        }, 4000);
-      }
-    });
-  });
-});
+// Auto-dismiss server-rendered toasts on page load.
 var tc = document.getElementById('toast-container');
 if (tc) {
-  toastObs.observe(tc, { childList: true });
-  // Auto-dismiss server-rendered toasts on page load.
-  tc.querySelectorAll('.toast').forEach(function (t) {
-    setTimeout(function () {
-      t.classList.add('toast-exit');
-      setTimeout(function () { t.remove(); }, 500);
-    }, 4000);
-  });
+  tc.querySelectorAll('.toast').forEach(autoDismissToast);
 }
+
+/* --- HTMX event-driven toasts and modal close --- */
+document.addEventListener('showToast', function (e) {
+  showToast(e.detail.type, e.detail.message);
+});
+
+document.addEventListener('closeModal', closeAllModals);
 
 /* --- Toast close via delegation --- */
 document.addEventListener('click', function (e) {
@@ -164,8 +162,7 @@ document.addEventListener('click', function (e) {
   if (b64) setCookie('isEnabledBase64Decode', b64.checked ? '1' : '0', 365);
   var hl = document.getElementById('isDisabledJobDataHighlight');
   if (hl) setCookie('isDisabledJobDataHighlight', hl.checked ? '0' : '1', 365);
-  var modal = e.target.closest('.modal');
-  if (modal) modal.classList.remove('open');
+  closeModal(e.target);
   showToast('success', 'Settings saved');
 });
 
@@ -181,7 +178,7 @@ document.addEventListener('click', function (e) {
     checked.push(cb.name);
   });
   setCookie(cookie, checked.join(','), 365);
-  if (modal) modal.classList.remove('open');
+  closeModal(btn);
   location.reload();
 });
 
@@ -195,71 +192,21 @@ document.addEventListener('click', function (e) {
   var cur = decodeURIComponent(getCookie('beansServers') || '');
   if (cur.indexOf(server) === -1) cur += server + ';';
   setCookie('beansServers', encodeURIComponent(cur), 365);
-  var modal = e.target.closest('.modal');
-  if (modal) modal.classList.remove('open');
+  closeModal(e.target);
   location.reload();
 });
 
-/* --- Add job --- */
-document.addEventListener('click', function (e) {
-  if (!e.target.closest('[data-action="addJob"]')) return;
-  var tube = document.getElementById('addJobTube').value;
-  var data = document.getElementById('addJobData').value;
-  var pri = document.getElementById('addJobPriority').value;
-  var delay = document.getElementById('addJobDelay').value;
-  var ttr = document.getElementById('addJobTTR').value;
-  if (!tube || !data) { showToast('error', 'Tube and data are required'); return; }
-  var params = new URLSearchParams();
-  params.set('tubeName', tube);
-  params.set('tubeData', data);
-  params.set('tubePriority', pri);
-  params.set('tubeDelay', delay);
-  params.set('tubeTtr', ttr);
-  var server = new URLSearchParams(location.search).get('server');
-  fetch('/tube?server=' + encodeURIComponent(server) + '&tube=' + encodeURIComponent(tube) + '&action=addjob', {
-    method: 'POST', body: params
-  }).then(function (r) { return r.json(); }).then(function (resp) {
-    var modal = document.getElementById('modal-addjob');
-    if (modal) modal.classList.remove('open');
-    if (resp.result) { showToast('success', 'Job added'); location.reload(); }
-    else showToast('error', resp.error || 'Failed');
-  });
-});
-
-/* --- Add sample from job --- */
+/* --- Add sample from job (opens modal with job ID) --- */
 document.addEventListener('click', function (e) {
   var btn = e.target.closest('.addSample');
   if (!btn) return;
   var modal = document.getElementById('modal-addsample');
   if (!modal) return;
   document.getElementById('addSampleJobId').value = btn.getAttribute('data-jobid');
-  var nameInput = document.getElementById('addSampleName');
+  var nameInput = modal.querySelector('input[name="addsamplename"]');
   nameInput.value = '';
   modal.classList.add('open');
   setTimeout(function () { nameInput.focus(); }, 80);
-});
-
-document.addEventListener('click', function (e) {
-  if (!e.target.closest('[data-action="saveSample"]')) return;
-  var modal = document.getElementById('modal-addsample');
-  var name = document.getElementById('addSampleName').value;
-  var jobId = document.getElementById('addSampleJobId').value;
-  if (!name) { showToast('error', 'Name is required'); return; }
-  var params = new URLSearchParams();
-  params.set('addsamplename', name);
-  params.set('addsamplejobid', jobId);
-  modal.querySelectorAll('input[type="checkbox"]:checked').forEach(function (cb) {
-    params.set(cb.name, '1');
-  });
-  var server = new URLSearchParams(location.search).get('server');
-  var tube = new URLSearchParams(location.search).get('tube');
-  fetch('/tube?server=' + encodeURIComponent(server) + '&tube=' + encodeURIComponent(tube) + '&action=addSample', {
-    method: 'POST', body: params
-  }).then(function (r) { return r.json(); }).then(function (resp) {
-    modal.classList.remove('open');
-    if (resp.result) showToast('success', 'Sample saved');
-    else showToast('error', resp.error || 'Failed');
-  });
 });
 
 /* --- Clear tubes --- */
@@ -269,27 +216,23 @@ document.addEventListener('click', function (e) {
   var checked = clearModal.querySelectorAll('input[type="checkbox"]:checked');
   if (checked.length === 0) { showToast('error', 'No tubes selected'); return; }
 
-  // Use confirm modal.
-  clearModal.classList.remove('open');
+  // Switch to confirm modal.
+  closeModal(e.target);
   pendingConfirmForm = null;
   var confirmModal = document.getElementById('modal-confirm');
   confirmModal.querySelector('.confirm-message').innerHTML = 'Clear <b>' + checked.length + ' selected tube(s)</b>? All jobs will be deleted.';
   confirmModal.classList.add('open');
 
-  // Temporarily override confirmYes handler.
   var handler = function (ev) {
     if (!ev.target.closest('[data-action="confirmYes"]')) return;
     document.removeEventListener('click', handler, true);
-    confirmModal.classList.remove('open');
+    closeModal(ev.target);
 
     var server = new URLSearchParams(location.search).get('server');
-    var params = new URLSearchParams();
-    checked.forEach(function (cb) { params.set(cb.name, '1'); });
-    fetch('/server?server=' + encodeURIComponent(server) + '&action=clearTubes', {
-      method: 'POST', body: params
-    }).then(function () {
-      showToast('success', 'Tubes cleared');
-      location.reload();
+    var values = {};
+    checked.forEach(function (cb) { values[cb.name] = '1'; });
+    htmx.ajax('POST', '/server?server=' + encodeURIComponent(server) + '&action=clearTubes', {
+      values: values, swap: 'none'
     });
   };
   document.addEventListener('click', handler, true);
@@ -352,8 +295,7 @@ document.addEventListener('submit', function (e) {
 
 document.addEventListener('click', function (e) {
   if (e.target.closest('[data-action="confirmYes"]')) {
-    var modal = document.getElementById('modal-confirm');
-    modal.classList.remove('open');
+    closeModal(e.target);
     if (pendingConfirmForm) {
       pendingConfirmForm.setAttribute('data-confirmed', '');
       pendingConfirmForm.submit();
@@ -361,7 +303,7 @@ document.addEventListener('click', function (e) {
     }
   }
   if (e.target.closest('[data-action="confirmNo"]')) {
-    document.getElementById('modal-confirm').classList.remove('open');
+    closeModal(e.target);
     pendingConfirmForm = null;
   }
 });
@@ -376,45 +318,17 @@ document.addEventListener('keydown', function (e) {
   }
 });
 
-/* --- Statistics chart polling --- */
-(function () {
+/* --- Statistics update interval (modifies HTMX polling trigger) --- */
+document.addEventListener('change', function (e) {
+  if (e.target.id !== 'statsUpdateInterval') return;
+  var v = parseInt(e.target.value);
+  if (!v || v < 1) return;
   var chart = document.getElementById('stats-chart');
-  if (!chart || !chart.dataset.server) return;
-
-  var server = chart.dataset.server;
-  var tube = chart.dataset.tube;
-  var interval = 1;
-
-  var input = document.getElementById('statsUpdateInterval');
-  if (input) {
-    input.addEventListener('change', function () {
-      var v = parseInt(this.value);
-      if (v && v >= 1) interval = v;
-    });
+  if (chart) {
+    chart.setAttribute('hx-trigger', 'every ' + v + 's');
+    htmx.process(chart);
   }
-
-  function fetchData() {
-    fetch('/statistics?action=reloader&server=' + encodeURIComponent(server) + '&tube=' + encodeURIComponent(tube))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var html = '<table class="table table-compact"><thead><tr><th>Field</th><th>Data points</th><th>Latest</th></tr></thead><tbody>';
-        for (var key in data) {
-          var pts = data[key];
-          var latest = pts.length > 0 ? pts[0][6] : '—';
-          html += '<tr><td><b>' + key + '</b></td><td>' + pts.length + '</td><td>' + latest + '</td></tr>';
-        }
-        html += '</tbody></table>';
-        chart.innerHTML = html;
-      })
-      .catch(function () {});
-  }
-
-  function loop() {
-    fetchData();
-    setTimeout(loop, interval * 1000);
-  }
-  loop();
-})();
+});
 
 /* --- Cookie helpers --- */
 function setCookie(name, value, days) {

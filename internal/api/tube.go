@@ -1,9 +1,11 @@
 package api
 
 import (
-	"math"
+	"context"
 	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/beanstalkd/go-beanstalk"
@@ -20,7 +22,7 @@ func newTube(conn *beanstalk.Conn, name string) *beanstalk.Tube {
 
 func addJob(server, tube, data, priority, delay, ttr string) {
 	pri, err := strconv.ParseUint(priority, 10, 32)
-	if err != nil || pri > math.MaxUint32 {
+	if err != nil {
 		pri = uint64(model.DefaultPriority)
 	}
 	d, err := strconv.Atoi(delay)
@@ -46,7 +48,7 @@ func addJob(server, tube, data, priority, delay, ttr string) {
 	)
 }
 
-func deleteJob(server, tube, jobID string) {
+func deleteJob(server, jobID string) {
 	id, err := strconv.Atoi(jobID)
 	if err != nil {
 		return
@@ -59,7 +61,7 @@ func deleteJob(server, tube, jobID string) {
 	_ = conn.Delete(uint64(id))
 }
 
-func deleteAll(server, tube string) {
+func deleteAll(ctx context.Context, server, tube string) {
 	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
@@ -67,13 +69,16 @@ func deleteAll(server, tube string) {
 	defer conn.Close()
 
 	t := newTube(conn, tube)
-	drainTube(conn, t.PeekReady)
-	drainTube(conn, t.PeekBuried)
-	drainTube(conn, t.PeekDelayed)
+	drainTube(ctx, conn, t.PeekReady)
+	drainTube(ctx, conn, t.PeekBuried)
+	drainTube(ctx, conn, t.PeekDelayed)
 }
 
-func drainTube(conn *beanstalk.Conn, peek func() (uint64, []byte, error)) {
+func drainTube(ctx context.Context, conn *beanstalk.Conn, peek func() (uint64, []byte, error)) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		id, _, err := peek()
 		if err != nil {
 			return
@@ -95,7 +100,7 @@ func kick(server, tube, count string) {
 	_, _ = newTube(conn, tube).Kick(bound)
 }
 
-func kickJob(server, tube, id string) {
+func kickJob(server, id string) {
 	jobID, err := strconv.Atoi(id)
 	if err != nil {
 		return
@@ -108,7 +113,7 @@ func kickJob(server, tube, id string) {
 	_ = conn.KickJob(uint64(jobID))
 }
 
-func pause(conf model.SelfConf, server, tube, count string) {
+func pause(server, tube, count string, pauseSeconds int) {
 	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
@@ -118,8 +123,8 @@ func pause(conf model.SelfConf, server, tube, count string) {
 	t := newTube(conn, tube)
 	switch count {
 	case "-1":
-		dur := time.Duration(conf.TubePauseSeconds) * time.Second
-		if conf.TubePauseSeconds == -1 {
+		dur := time.Duration(pauseSeconds) * time.Second
+		if pauseSeconds == -1 {
 			dur = model.DefaultTubePauseSeconds * time.Second
 		}
 		_ = t.Pause(dur)
@@ -128,26 +133,20 @@ func pause(conf model.SelfConf, server, tube, count string) {
 	}
 }
 
-func moveJobsTo(server, tube, destTube, state, destState string) {
-	switch state {
-	case "ready":
-		moveReadyJobsTo(server, tube, destTube, destState)
-	case "buried":
-		moveBuriedJobsTo(server, tube, destTube, destState)
-	}
-}
-
-func moveReadyJobsTo(server, tube, destTube, destState string) {
+func moveJobsTo(ctx context.Context, server, tube, destTube, state, destState string) {
 	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
 
-	switch destState {
-	case "buried":
+	// Special case: ready → buried (requires reserve+bury).
+	if state == "ready" && destState == "buried" {
 		ts := beanstalk.NewTubeSet(conn, tube)
 		for {
+			if ctx.Err() != nil {
+				return
+			}
 			id, _, err := ts.Reserve(time.Second)
 			if err != nil {
 				return
@@ -156,38 +155,23 @@ func moveReadyJobsTo(server, tube, destTube, destState string) {
 				return
 			}
 		}
-	default:
-		if tube == destTube {
-			return
-		}
-		src := newTube(conn, tube)
-		dst := newTube(conn, destTube)
-		for {
-			id, body, err := src.PeekReady()
-			if err != nil {
-				return
-			}
-			if _, err := dst.Put(body, model.DefaultPriority, model.DefaultDelay, model.DefaultTTR); err != nil {
-				return
-			}
-			if err := conn.Delete(id); err != nil {
-				return
-			}
-		}
 	}
-}
 
-func moveBuriedJobsTo(server, tube, destTube, destState string) {
-	conn, err := dialBeanstalk(server)
-	if err != nil {
+	// General case: peek → put to dest → delete from src.
+	if tube == destTube {
 		return
 	}
-	defer conn.Close()
-
 	src := newTube(conn, tube)
 	dst := newTube(conn, destTube)
+	peek := src.PeekReady
+	if state == "buried" {
+		peek = src.PeekBuried
+	}
 	for {
-		id, body, err := src.PeekBuried()
+		if ctx.Err() != nil {
+			return
+		}
+		id, body, err := peek()
 		if err != nil {
 			return
 		}
@@ -200,10 +184,59 @@ func moveBuriedJobsTo(server, tube, destTube, destState string) {
 	}
 }
 
-func clearTubes(server string, data url.Values) {
+func clearTubes(ctx context.Context, server string, data url.Values) {
 	for tube := range data {
-		deleteAll(server, tube)
+		deleteAll(ctx, server, tube)
 	}
+}
+
+func searchTube(server, tube string, limit int, searchStr string) []model.SearchResult {
+	conn, err := dialBeanstalk(server)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	stats, err := conn.Stats()
+	if err != nil {
+		return nil
+	}
+	totalJobs, err := strconv.ParseUint(stats["total-jobs"], 10, 64)
+	if err != nil {
+		return nil
+	}
+
+	var result []model.SearchResult
+	for _, state := range []string{"ready", "delayed", "buried"} {
+		cnt := 0
+		for id := totalJobs; id > 0 && cnt < limit; id-- {
+			r := matchJob(conn, tube, searchStr, state, id)
+			if r != nil {
+				result = append(result, *r)
+				cnt++
+			}
+		}
+	}
+	return result
+}
+
+func matchJob(conn *beanstalk.Conn, tube, searchStr, state string, id uint64) *model.SearchResult {
+	stats, err := conn.StatsJob(id)
+	if err != nil {
+		return nil
+	}
+	if stats["tube"] != tube || stats["state"] != state {
+		return nil
+	}
+	body, err := conn.Peek(id)
+	if err != nil {
+		return nil
+	}
+	data := string(body)
+	if !strings.Contains(data, searchStr) {
+		return nil
+	}
+	return &model.SearchResult{ID: id, State: state, Data: data}
 }
 
 func listTubesSorted(server string) []string {
@@ -213,5 +246,6 @@ func listTubesSorted(server string) []string {
 	}
 	defer conn.Close()
 	tubes, _ := conn.ListTubes()
+	sort.Strings(tubes)
 	return tubes
 }

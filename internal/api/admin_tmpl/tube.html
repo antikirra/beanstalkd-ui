@@ -126,54 +126,54 @@
 
 <div class="modal" id="modal-addjob">
   <div class="modal-backdrop"></div>
-  <div class="modal-content">
+  <form class="modal-content" hx-post="/tube?server={{.CurrentServer}}&action=addjob" hx-swap="none">
     <div class="modal-header">
       <h3>Add New Job</h3>
-      <button class="modal-close" data-modal-close aria-label="Close">×</button>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close">×</button>
     </div>
     <div class="modal-body">
       <div class="form-group">
         <label class="form-label">Tube name</label>
-        <input type="text" id="addJobTube" class="form-input" value="{{.CurrentTube}}">
+        <input type="text" name="tubeName" class="form-input" value="{{.CurrentTube}}" required>
       </div>
       <div class="form-group">
         <label class="form-label">Data</label>
-        <textarea id="addJobData" rows="4" class="form-input"></textarea>
+        <textarea name="tubeData" rows="4" class="form-input" required></textarea>
       </div>
       <div class="grid-3col">
         <div class="form-group">
           <label class="form-label">Priority</label>
-          <input type="number" id="addJobPriority" class="form-input" value="{{defaultPriority}}">
+          <input type="number" name="tubePriority" class="form-input" value="{{defaultPriority}}">
         </div>
         <div class="form-group">
           <label class="form-label">Delay</label>
-          <input type="number" id="addJobDelay" class="form-input" value="{{defaultDelay}}">
+          <input type="number" name="tubeDelay" class="form-input" value="{{defaultDelay}}">
         </div>
         <div class="form-group">
           <label class="form-label">TTR</label>
-          <input type="number" id="addJobTTR" class="form-input" value="{{defaultTTR}}">
+          <input type="number" name="tubeTtr" class="form-input" value="{{defaultTTR}}">
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-modal-close>Cancel</button>
-      <button class="btn btn-primary" data-action="addJob">Add job</button>
+      <button type="button" class="btn btn-ghost" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn-primary">Add job</button>
     </div>
-  </div>
+  </form>
 </div>
 
 <div class="modal" id="modal-addsample">
   <div class="modal-backdrop"></div>
-  <div class="modal-content modal-sm">
+  <form class="modal-content modal-sm" hx-post="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=addSample" hx-swap="none">
     <div class="modal-header">
       <h3>Add to Samples</h3>
-      <button class="modal-close" data-modal-close aria-label="Close">×</button>
+      <button type="button" class="modal-close" data-modal-close aria-label="Close">×</button>
     </div>
     <div class="modal-body">
-      <input type="hidden" id="addSampleJobId">
+      <input type="hidden" name="addsamplejobid" id="addSampleJobId">
       <div class="form-group">
         <label class="form-label">Sample name</label>
-        <input type="text" id="addSampleName" class="form-input" autocomplete="off">
+        <input type="text" name="addsamplename" class="form-input" autocomplete="off" required>
       </div>
       <div class="form-group">
         <label class="form-label">Available on tubes</label>
@@ -183,10 +183,10 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-modal-close>Cancel</button>
-      <button class="btn btn-primary" data-action="saveSample">Save</button>
+      <button type="button" class="btn btn-ghost" data-modal-close>Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
     </div>
-  </div>
+  </form>
 </div>
 {{end}}
 
