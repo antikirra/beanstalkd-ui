@@ -120,10 +120,13 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // noCache sets headers that prevent caching of dynamic responses.
+// Static assets are excluded — they are embedded and change only on redeploy.
 func noCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache, private, max-age=0")
-		w.Header().Set("Pragma", "no-cache")
+		if !strings.HasPrefix(r.URL.Path, "/static/") {
+			w.Header().Set("Cache-Control", "no-cache, private, max-age=0")
+			w.Header().Set("Pragma", "no-cache")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

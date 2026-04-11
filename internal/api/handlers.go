@@ -180,7 +180,7 @@ func (h *Handlers) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleServersReload(w http.ResponseWriter, r *http.Request) {
 	conf := readCookies(r, h.cfg)
-	h.renderFragment(w, r, "server_table_inner", &pageData{
+	h.renderFragment(w, "server_table_inner", &pageData{
 		ServerStats: h.serverStats(conf),
 		Filter:      conf.Filter,
 		Conf:        conf,
@@ -203,7 +203,7 @@ func (h *Handlers) handleServer(w http.ResponseWriter, r *http.Request) {
 
 	switch q.Get("action") {
 	case "reloader":
-		h.renderFragment(w, r, "tube_table_inner", &pageData{
+		h.renderFragment(w, "tube_table_inner", &pageData{
 			TubeStats:     h.tubeStats(server),
 			TubeFilters:   conf.TubeFilters,
 			CurrentServer: server,
@@ -302,7 +302,7 @@ func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
 	case "reloader":
 		td := h.buildTubeData(conf, server, tube, nil, "", "")
 		td.Conf = conf
-		h.renderFragment(w, r, "tube_content_inner", td)
+		h.renderFragment(w, "tube_content_inner", td)
 	default:
 		h.render(w, r, "tube.html", h.buildTubeData(conf, server, tube, nil, "", ""))
 	}
@@ -457,7 +457,7 @@ func (h *Handlers) handleStatistics(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		h.statisticPreferenceSave(r.Form, w, r)
 	case "reloader":
-		h.renderFragment(w, r, "stats_table", h.statisticsRows(server, tube))
+		h.renderFragment(w, "stats_table", h.statisticsRows(server, tube))
 	default:
 		h.render(w, r, "statistics.html", &pageData{
 			PageTitle:   "Statistics",
@@ -600,6 +600,11 @@ func (h *Handlers) addSampleFromJob(server string, data url.Values, w http.Respo
 		}
 	}
 	h.sampleJobsMu.Lock()
+	if h.sampleNameExists(sampleName) {
+		h.sampleJobsMu.Unlock()
+		hxError(w, "Sample with this name already exists")
+		return
+	}
 	for _, t := range tubes {
 		h.addSampleTube(t, key)
 	}

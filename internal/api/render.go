@@ -100,10 +100,10 @@ type sampleForTube struct {
 func templateFuncMap() template.FuncMap {
 	return template.FuncMap{
 		"tubeURL": func(server, tube string) string {
-			return fmt.Sprintf("/tube?server=%s&tube=%s", server, url.QueryEscape(tube))
+			return "/tube?server=" + url.QueryEscape(server) + "&tube=" + url.QueryEscape(tube)
 		},
 		"serverURL": func(server string) string {
-			return fmt.Sprintf("/server?server=%s", server)
+			return "/server?server=" + url.QueryEscape(server)
 		},
 		"formatJobData": func(conf model.SelfConf, body string) string {
 			data := body
@@ -250,7 +250,7 @@ func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, d
 	buf.WriteTo(w)
 }
 
-func (h *Handlers) renderFragment(w http.ResponseWriter, r *http.Request, name string, data any) {
+func (h *Handlers) renderFragment(w http.ResponseWriter, name string, data any) {
 	var buf bytes.Buffer
 	if err := h.tmpl.fragments.ExecuteTemplate(&buf, name, data); err != nil {
 		h.log.Error("fragment render failed", "template", name, "error", err)
