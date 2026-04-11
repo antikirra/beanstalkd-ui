@@ -76,8 +76,7 @@ func New(cfg Config) *Manager {
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	m.wg.Add(1)
-	go m.reaper()
+	m.wg.Go(m.reaper)
 	return m
 }
 
@@ -152,7 +151,6 @@ func (m *Manager) pool(server string, kind PoolKind) *serverPool {
 }
 
 func (m *Manager) reaper() {
-	defer m.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {

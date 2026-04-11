@@ -211,12 +211,16 @@ document.addEventListener('click', function (e) {
   var host = document.getElementById('host').value;
   var port = document.getElementById('port').value;
   if (!host || !port) return;
-  var server = host + ':' + port;
-  var cur = decodeURIComponent(getCookie('beansServers') || '');
-  if (cur.indexOf(server) === -1) cur += server + ';';
-  setCookie('beansServers', encodeURIComponent(cur), 365);
-  closeModal(e.target);
-  location.reload();
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/serversAdd';
+  var input = document.createElement('input');
+  input.type = 'hidden';
+  input.name = 'server';
+  input.value = host + ':' + port;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
 });
 
 /* --- Add sample from job (opens modal with job ID) --- */

@@ -12,6 +12,7 @@ Designed to work alongside [antikirra/beanstalkd](https://github.com/antikirra/b
 - Job inspection: peek ready/delayed/buried, view formatted JSON, search by content
 - Sample jobs: save job templates, load into any tube
 - Statistics collection with time-series data
+- Connection pooling with read/write separation
 - Strict CSP headers, Basic Auth with throttle, recovery middleware
 - HTMX + vanilla JS — no jQuery, no Bootstrap, no frameworks
 
@@ -22,38 +23,47 @@ go build -o beanstalkd-ui ./cmd/beanstalkd-ui
 ./beanstalkd-ui
 ```
 
-Opens at `http://127.0.0.1:3000`. Add beanstalkd servers through the UI or in `beanstalkd-ui.toml`.
+Opens at `http://127.0.0.1:3000`. Add beanstalkd servers through the UI.
 
 ## Docker
 
 ```sh
-docker build -t beanstalkd-ui .
-docker run -p 3000:3000 beanstalkd-ui
+docker compose up --build
 ```
+
+UI: http://localhost:3000, beanstalkd: localhost:11300.
 
 ## Configuration
 
-`beanstalkd-ui.toml` is auto-created on first run:
+All runtime settings are passed via CLI flags and environment variables — no config files.
 
-```toml
-servers = ["127.0.0.1:11300"]
-listen = "127.0.0.1:3000"
+**CLI flags:**
 
-[auth]
-enabled = false
-username = "admin"
-password = "password"
-```
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-l` | `127.0.0.1:3000` | HTTP listen address |
+| `-d` | `beanstalkd-ui.db` | Path to database file |
+| `-v` | | Show version and exit |
 
-Display preferences (refresh interval, column filters, JSON formatting) are configured in Settings.
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `BEANSTALKD_UI_PASSWORD` | If set, enables Basic Auth with username `beanstalkd` |
+
+**Persistent storage:** bbolt database (`beanstalkd-ui.db`) stores server list and sample jobs. Created automatically on first run.
+
+**Display preferences** (refresh interval, column filters, JSON formatting) are configured in Settings and stored in browser cookies.
 
 ## Architecture
 
 ```
-cmd/beanstalkd-ui/   entry point, graceful shutdown
-internal/api/        HTTP handlers, middleware, templates, static assets
-internal/config/     TOML configuration
-internal/model/      data types and constants
+cmd/beanstalkd-ui/   entry point, CLI flags, graceful shutdown
+internal/
+  api/               HTTP handlers, middleware, templates, static assets
+  pool/              beanstalkd connection pool (read/write separation)
+  store/             bbolt persistent storage
+  model/             data types and constants
 ```
 
 ## License

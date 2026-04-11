@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/antikirra/beanstalkd-ui/internal/config"
 	"github.com/antikirra/beanstalkd-ui/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/store"
 )
 
 //go:embed admin_tmpl/*.html
@@ -17,13 +17,13 @@ var tmplFS embed.FS
 var staticFS embed.FS
 
 // NewServer creates a fully configured HTTP handler with all routes and middleware.
-func NewServer(log *slog.Logger, cfg *config.Config, configPath string, samples model.SampleJobs) (http.Handler, *Handlers, error) {
+func NewServer(log *slog.Logger, st *store.Store, samples model.SampleJobs, authPassword string) (http.Handler, *Handlers, error) {
 	tmplDir, err := fs.Sub(tmplFS, "admin_tmpl")
 	if err != nil {
 		return nil, nil, err
 	}
 
-	h, err := NewHandlers(log, cfg, configPath, tmplDir, samples)
+	h, err := NewHandlers(log, st, tmplDir, samples)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -34,9 +34,9 @@ func NewServer(log *slog.Logger, cfg *config.Config, configPath string, samples 
 	// Middleware chain: recovery → security headers → no-cache → auth (if enabled) → mux.
 	var handler http.Handler = mux
 
-	if cfg.Auth.Enabled {
+	if authPassword != "" {
 		throttle := newAuthThrottle()
-		handler = authMiddleware(handler, cfg.Auth.Username, cfg.Auth.Password, throttle, log)
+		handler = authMiddleware(handler, "beanstalkd", authPassword, throttle, log)
 	}
 
 	handler = noCache(handler)
@@ -54,6 +54,7 @@ func (h *Handlers) registerRoutes(mux *http.ServeMux) {
 	// Pages.
 	mux.HandleFunc("GET /{$}", h.handleServers)
 	mux.HandleFunc("GET /index", h.handleServersReload)
+	mux.HandleFunc("POST /serversAdd", h.handleServerAdd)
 	mux.HandleFunc("POST /serversRemove", h.handleServerRemove)
 	mux.HandleFunc("/server", h.handleServer)
 	mux.HandleFunc("/tube", h.handleTube)

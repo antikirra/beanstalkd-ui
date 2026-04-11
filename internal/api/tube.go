@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -18,7 +19,7 @@ func newTube(conn *beanstalk.Conn, name string) *beanstalk.Tube {
 	return &beanstalk.Tube{Conn: conn, Name: name}
 }
 
-func (h *Handlers) addJob(ctx context.Context, server, tube, data, priority, delay, ttr string) {
+func (h *Handlers) addJob(ctx context.Context, server, tube, data, priority, delay, ttr string) error {
 	pri, err := strconv.ParseUint(priority, 10, 32)
 	if err != nil {
 		pri = uint64(model.DefaultPriority)
@@ -32,7 +33,7 @@ func (h *Handlers) addJob(ctx context.Context, server, tube, data, priority, del
 		t = model.DefaultTTR
 	}
 
-	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+	return h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
 		_, err := newTube(conn, tube).Put(
 			[]byte(data),
 			uint32(pri),
@@ -43,20 +44,20 @@ func (h *Handlers) addJob(ctx context.Context, server, tube, data, priority, del
 	})
 }
 
-func (h *Handlers) deleteJob(ctx context.Context, server, jobID string) {
+func (h *Handlers) deleteJob(ctx context.Context, server, jobID string) error {
 	id, err := strconv.Atoi(jobID)
 	if err != nil {
-		return
+		return fmt.Errorf("invalid job ID: %w", err)
 	}
-	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+	return h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
 		return conn.Delete(uint64(id))
 	})
 }
 
-func (h *Handlers) deleteAll(ctx context.Context, server, tube, state string) {
+func (h *Handlers) deleteAll(ctx context.Context, server, tube, state string) error {
 	conn, release, err := h.pool.Get(ctx, server, pool.WritePool)
 	if err != nil {
-		return
+		return err
 	}
 	var opErr error
 	defer func() { release(opErr) }()
@@ -72,14 +73,15 @@ func (h *Handlers) deleteAll(ctx context.Context, server, tube, state string) {
 	default:
 		opErr = drainTube(ctx, conn, t.PeekReady)
 		if opErr != nil {
-			return
+			return opErr
 		}
 		opErr = drainTube(ctx, conn, t.PeekBuried)
 		if opErr != nil {
-			return
+			return opErr
 		}
 		opErr = drainTube(ctx, conn, t.PeekDelayed)
 	}
+	return opErr
 }
 
 func drainTube(ctx context.Context, conn *beanstalk.Conn, peek func() (uint64, []byte, error)) error {
@@ -100,29 +102,29 @@ func drainTube(ctx context.Context, conn *beanstalk.Conn, peek func() (uint64, [
 	}
 }
 
-func (h *Handlers) kick(ctx context.Context, server, tube, count string) {
+func (h *Handlers) kick(ctx context.Context, server, tube, count string) error {
 	bound, err := strconv.Atoi(count)
 	if err != nil {
 		bound = 0
 	}
-	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+	return h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
 		_, err := newTube(conn, tube).Kick(bound)
 		return err
 	})
 }
 
-func (h *Handlers) kickJob(ctx context.Context, server, id string) {
+func (h *Handlers) kickJob(ctx context.Context, server, id string) error {
 	jobID, err := strconv.Atoi(id)
 	if err != nil {
-		return
+		return fmt.Errorf("invalid job ID: %w", err)
 	}
-	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+	return h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
 		return conn.KickJob(uint64(jobID))
 	})
 }
 
-func (h *Handlers) pause(ctx context.Context, server, tube, count string, pauseSeconds int) {
-	_ = h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
+func (h *Handlers) pause(ctx context.Context, server, tube, count string, pauseSeconds int) error {
+	return h.pool.WithConn(ctx, server, pool.WritePool, func(conn *beanstalk.Conn) error {
 		t := newTube(conn, tube)
 		switch count {
 		case "-1":
@@ -138,10 +140,10 @@ func (h *Handlers) pause(ctx context.Context, server, tube, count string, pauseS
 	})
 }
 
-func (h *Handlers) moveJobsTo(ctx context.Context, server, tube, destTube, state, destState string) {
+func (h *Handlers) moveJobsTo(ctx context.Context, server, tube, destTube, state, destState string) error {
 	conn, release, err := h.pool.Get(ctx, server, pool.WritePool)
 	if err != nil {
-		return
+		return err
 	}
 	var opErr error
 	defer func() { release(opErr) }()
@@ -151,23 +153,23 @@ func (h *Handlers) moveJobsTo(ctx context.Context, server, tube, destTube, state
 		ts := beanstalk.NewTubeSet(conn, tube)
 		for {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
 			id, _, err := ts.Reserve(time.Second)
 			if err != nil {
 				opErr = err
-				return
+				return opErr
 			}
 			if err := conn.Bury(id, model.DefaultPriority); err != nil {
 				opErr = err
-				return
+				return opErr
 			}
 		}
 	}
 
 	// General case: peek → put to dest → delete from src.
 	if tube == destTube {
-		return
+		return nil
 	}
 	src := newTube(conn, tube)
 	dst := newTube(conn, destTube)
@@ -177,30 +179,34 @@ func (h *Handlers) moveJobsTo(ctx context.Context, server, tube, destTube, state
 	}
 	for {
 		if ctx.Err() != nil {
-			return
+			return nil
 		}
 		id, body, err := peek()
 		if err != nil {
 			if pool.IsConnError(err) {
 				opErr = err
+				return opErr
 			}
-			return
+			return nil
 		}
 		if _, err := dst.Put(body, model.DefaultPriority, model.DefaultDelay, model.DefaultTTR); err != nil {
 			opErr = err
-			return
+			return opErr
 		}
 		if err := conn.Delete(id); err != nil {
 			opErr = err
-			return
+			return opErr
 		}
 	}
 }
 
-func (h *Handlers) clearTubes(ctx context.Context, server string, data url.Values) {
+func (h *Handlers) clearTubes(ctx context.Context, server string, data url.Values) error {
 	for _, tube := range parseTubesFromForm(data) {
-		h.deleteAll(ctx, server, tube, "")
+		if err := h.deleteAll(ctx, server, tube, ""); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (h *Handlers) searchTube(ctx context.Context, server, tube string, limit int, searchStr string) []model.SearchResult {

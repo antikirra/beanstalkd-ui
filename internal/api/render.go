@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/antikirra/beanstalkd-ui/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/store"
 )
 
 // pageData is the universal data structure passed to all templates.
@@ -222,9 +223,11 @@ func parseTemplates(tmplFS fs.FS) (*templateSet, error) {
 }
 
 func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, data *pageData) {
-	data.Version = h.cfg.Version
-	data.Conf = h.readConf(r)
+	data.Version = store.Version
 	data.PagePath = r.URL.Path
+	if data.Conf.Filter == nil {
+		data.Conf = h.readConf(r)
+	}
 
 	if f := getFlash(w, r); f != nil {
 		data.Flash = f
@@ -245,7 +248,9 @@ func (h *Handlers) render(w http.ResponseWriter, r *http.Request, name string, d
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	buf.WriteTo(w)
+	if _, err := buf.WriteTo(w); err != nil {
+		h.log.Error("response write failed", "template", name, "error", err)
+	}
 }
 
 func (h *Handlers) renderFragment(w http.ResponseWriter, name string, data any) {
@@ -256,5 +261,7 @@ func (h *Handlers) renderFragment(w http.ResponseWriter, name string, data any) 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	buf.WriteTo(w)
+	if _, err := buf.WriteTo(w); err != nil {
+		h.log.Error("response write failed", "template", name, "error", err)
+	}
 }
