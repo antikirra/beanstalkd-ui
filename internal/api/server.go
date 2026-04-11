@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/xuri/aurora/internal/config"
-	"github.com/xuri/aurora/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/config"
+	"github.com/antikirra/beanstalkd-ui/internal/model"
 )
 
 //go:embed admin_tmpl/*.html

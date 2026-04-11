@@ -64,15 +64,15 @@ func ParseFlags() string {
 		if err != nil {
 			os.Exit(1)
 		}
-		path = filepath.Join(selfDir, "aurora.toml")
+		path = filepath.Join(selfDir, "beanstalkd-ui.toml")
 	}
 
 	if *verPtr {
-		fmt.Printf("aurora version: %.1f\n", Version)
+		fmt.Printf("beanstalkd-ui version: %.1f\n", Version)
 		os.Exit(0)
 	}
 	if *helpPtr {
-		fmt.Printf("aurora version: %.1f\nUsage: aurora [OPTIONS]\n  -c <filename>   Use config file (default: aurora.toml)\n  -h              Output this help and exit\n  -v              Output version and exit\n", Version)
+		fmt.Printf("beanstalkd-ui version: %.1f\nUsage: beanstalkd-ui [OPTIONS]\n  -c <filename>   Use config file (default: beanstalkd-ui.toml)\n  -h              Output this help and exit\n  -v              Output version and exit\n", Version)
 		os.Exit(0)
 	}
 	return path

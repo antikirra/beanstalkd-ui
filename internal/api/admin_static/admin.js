@@ -1,4 +1,4 @@
-/* Aurora — CSP-compatible event delegation */
+/* Beanstalkd UI — CSP-compatible event delegation */
 
 /* --- Progress bar (only for navigation, not polling) --- */
 function isPollingRequest(evt) {
@@ -21,6 +21,29 @@ document.addEventListener('htmx:afterSettle', function (evt) {
     if (dot) setTimeout(function () { dot.classList.remove('pulse'); }, 300);
   }
 });
+
+/* --- Change highlighting for polled content --- */
+(function () {
+  var observer = new MutationObserver(function (mutations) {
+    mutations.forEach(function (m) {
+      var td;
+      if (m.type === 'characterData') {
+        td = m.target.parentElement && m.target.parentElement.closest('td');
+      } else if (m.type === 'childList' && m.target.tagName === 'TD') {
+        td = m.target;
+      }
+      if (td) {
+        td.classList.remove('val-changed');
+        void td.offsetWidth;
+        td.classList.add('val-changed');
+      }
+    });
+  });
+
+  document.querySelectorAll('[hx-trigger*="every"]').forEach(function (el) {
+    observer.observe(el, { characterData: true, childList: true, subtree: true });
+  });
+})();
 
 /* --- Sidebar active state --- */
 function updateSidebarActive() {

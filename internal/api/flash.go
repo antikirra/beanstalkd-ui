@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const flashCookieName = "aurora_flash"
+const flashCookieName = "beanstalkd_ui_flash"
 
 type flash struct {
 	Type    string

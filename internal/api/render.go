@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/xuri/aurora/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/model"
 )
 
 // pageData is the universal data structure passed to all templates.
@@ -68,11 +68,11 @@ type pageData struct {
 	Version   float64
 
 	// Stats filter reference data.
-	BinlogStatsGroups  []map[string]string
-	CmdStatsGroups     []map[string]string
-	CurrentStatsGroups []map[string]string
-	OtherStatsGroups   []map[string]string
-	TubeStatFields     []map[string]string
+	BinlogStatsGroups  []model.StatsDesc
+	CmdStatsGroups     []model.StatsDesc
+	CurrentStatsGroups []model.StatsDesc
+	OtherStatsGroups   []model.StatsDesc
+	TubeStatFields     []model.StatsDesc
 }
 
 type serverStat struct {

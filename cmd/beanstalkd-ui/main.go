@@ -15,9 +15,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xuri/aurora/internal/api"
-	"github.com/xuri/aurora/internal/config"
-	"github.com/xuri/aurora/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/api"
+	"github.com/antikirra/beanstalkd-ui/internal/config"
+	"github.com/antikirra/beanstalkd-ui/internal/model"
 )
 
 func main() {
@@ -48,8 +48,11 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    cfg.Listen,
-		Handler: handler,
+		Addr:         cfg.Listen,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {

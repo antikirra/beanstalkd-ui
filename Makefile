@@ -1,9 +1,9 @@
 .PHONY: build vet sri clean
 
-BINARY = aurora
+BINARY = beanstalkd-ui
 
 build: sri vet
-	go build -o $(BINARY) ./cmd/aurora
+	go build -o $(BINARY) ./cmd/beanstalkd-ui
 
 vet:
 	go vet ./...

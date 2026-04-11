@@ -3,13 +3,13 @@ package api
 import (
 	"context"
 	"net/url"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/beanstalkd/go-beanstalk"
-	"github.com/xuri/aurora/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/model"
 )
 
 func dialBeanstalk(server string) (*beanstalk.Conn, error) {
@@ -61,7 +61,7 @@ func deleteJob(server, jobID string) {
 	_ = conn.Delete(uint64(id))
 }
 
-func deleteAll(ctx context.Context, server, tube string) {
+func deleteAll(ctx context.Context, server, tube, state string) {
 	conn, err := dialBeanstalk(server)
 	if err != nil {
 		return
@@ -69,9 +69,18 @@ func deleteAll(ctx context.Context, server, tube string) {
 	defer conn.Close()
 
 	t := newTube(conn, tube)
-	drainTube(ctx, conn, t.PeekReady)
-	drainTube(ctx, conn, t.PeekBuried)
-	drainTube(ctx, conn, t.PeekDelayed)
+	switch state {
+	case "ready":
+		drainTube(ctx, conn, t.PeekReady)
+	case "delayed":
+		drainTube(ctx, conn, t.PeekDelayed)
+	case "buried":
+		drainTube(ctx, conn, t.PeekBuried)
+	default:
+		drainTube(ctx, conn, t.PeekReady)
+		drainTube(ctx, conn, t.PeekBuried)
+		drainTube(ctx, conn, t.PeekDelayed)
+	}
 }
 
 func drainTube(ctx context.Context, conn *beanstalk.Conn, peek func() (uint64, []byte, error)) {
@@ -186,7 +195,7 @@ func moveJobsTo(ctx context.Context, server, tube, destTube, state, destState st
 
 func clearTubes(ctx context.Context, server string, data url.Values) {
 	for tube := range data {
-		deleteAll(ctx, server, tube)
+		deleteAll(ctx, server, tube, "")
 	}
 }
 
@@ -246,6 +255,6 @@ func listTubesSorted(server string) []string {
 	}
 	defer conn.Close()
 	tubes, _ := conn.ListTubes()
-	sort.Strings(tubes)
+	slices.Sort(tubes)
 	return tubes
 }

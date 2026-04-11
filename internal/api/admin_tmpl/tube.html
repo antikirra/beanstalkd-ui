@@ -60,7 +60,7 @@
     </form>
     <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=kick" class="inline-form kick-form">
       <button type="submit" class="btn btn-ghost btn-sm"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg> Kick</button>
-      <input type="number" name="count" value="10" min="0" class="form-input form-input-inline input-narrow">
+      <input type="number" name="count" value="10" min="0" class="form-input">
     </form>
     {{if eq .PauseSeconds "0"}}
     <form method="POST" action="/tube?server={{.CurrentServer}}&tube={{.CurrentTube}}&action=pause&count=-1" class="inline-form">

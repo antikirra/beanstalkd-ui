@@ -13,14 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/xuri/aurora/internal/config"
-	"github.com/xuri/aurora/internal/model"
+	"github.com/antikirra/beanstalkd-ui/internal/config"
+	"github.com/antikirra/beanstalkd-ui/internal/model"
 )
 
 // Handlers holds all dependencies and mutable state for HTTP handlers.
@@ -232,9 +231,8 @@ func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	server := q.Get("server")
 	tube := q.Get("tube")
-	action := q.Get("action")
 
-	switch action {
+	switch q.Get("action") {
 	case "addjob":
 		addJob(server,
 			r.PostFormValue("tubeName"), r.PostFormValue("tubeData"),
@@ -284,7 +282,7 @@ func (h *Handlers) handleTube(w http.ResponseWriter, r *http.Request) {
 		if !requirePOST(w, r) {
 			return
 		}
-		deleteAll(r.Context(), server, tube)
+		deleteAll(r.Context(), server, tube, q.Get("state"))
 		setFlash(w, "success", "All jobs deleted")
 		h.redirectToTube(w, r, server, tube)
 	case "deleteJob":
@@ -336,7 +334,7 @@ func (h *Handlers) buildTubeData(conf model.SelfConf, server, tube string, searc
 	t := newTube(conn, tube)
 	data.TubeInfo, _ = t.Stats()
 	data.Tubes, _ = conn.ListTubes()
-	sort.Strings(data.Tubes)
+	slices.Sort(data.Tubes)
 
 	if data.TubeInfo != nil {
 		data.PauseSeconds = data.TubeInfo["pause-time-left"]
@@ -499,7 +497,7 @@ func (h *Handlers) tubeStats(server string) []tubeStat {
 	defer conn.Close()
 
 	tubes, _ := conn.ListTubes()
-	sort.Strings(tubes)
+	slices.Sort(tubes)
 
 	stats := make([]tubeStat, 0, len(tubes))
 	for _, name := range tubes {

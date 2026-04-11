@@ -89,7 +89,7 @@ func authMiddleware(next http.Handler, username, password string, throttle *auth
 		}
 		throttle.onFailure(ip)
 		log.Warn("auth failure", "ip", ip)
-		w.Header().Set("WWW-Authenticate", `Basic realm="Aurora"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="Beanstalkd UI"`)
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 }

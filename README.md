@@ -2,7 +2,7 @@
 
 Modern web console for [Beanstalkd](https://beanstalkd.github.io/) queue server. Single Go binary with embedded assets — no external dependencies, no npm, no build step.
 
-Maintained fork of [xuri/aurora](https://github.com/xuri/aurora). Designed to work alongside [antikirra/beanstalkd](https://github.com/antikirra/beanstalkd).
+Designed to work alongside [antikirra/beanstalkd](https://github.com/antikirra/beanstalkd).
 
 ## Features
 
@@ -18,11 +18,11 @@ Maintained fork of [xuri/aurora](https://github.com/xuri/aurora). Designed to wo
 ## Quick start
 
 ```sh
-go build -o beanstalkd-ui ./cmd/aurora
+go build -o beanstalkd-ui ./cmd/beanstalkd-ui
 ./beanstalkd-ui
 ```
 
-Opens at `http://127.0.0.1:3000`. Add beanstalkd servers through the UI or in `aurora.toml`.
+Opens at `http://127.0.0.1:3000`. Add beanstalkd servers through the UI or in `beanstalkd-ui.toml`.
 
 ## Docker
 
@@ -33,7 +33,7 @@ docker run -p 3000:3000 beanstalkd-ui
 
 ## Configuration
 
-`aurora.toml` is auto-created on first run:
+`beanstalkd-ui.toml` is auto-created on first run:
 
 ```toml
 servers = ["127.0.0.1:11300"]
@@ -50,13 +50,12 @@ Display preferences (refresh interval, column filters, JSON formatting) are conf
 ## Architecture
 
 ```
-cmd/aurora/          entry point, graceful shutdown
+cmd/beanstalkd-ui/   entry point, graceful shutdown
 internal/api/        HTTP handlers, middleware, templates, static assets
 internal/config/     TOML configuration
 internal/model/      data types and constants
-beanstalk/           forked beanstalkd client library
 ```
 
 ## License
 
-MIT. Based on [aurora](https://github.com/xuri/aurora) by Ri Xu and contributors.
+MIT

@@ -1,4 +1,4 @@
-module github.com/xuri/aurora
+module github.com/antikirra/beanstalkd-ui
 
 go 1.26
 

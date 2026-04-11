@@ -52,24 +52,24 @@
           <button class="tab" data-tab="other">other</button>
         </div>
         <div class="tab-panel tab-panel-active" data-panel="binlog">
-          {{range .BinlogStatsGroups}}{{range $k, $v := .}}
-          <label class="checkbox-label"><input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}> <b>{{$k}}</b> <span class="text-muted">— {{$v}}</span></label>
-          {{end}}{{end}}
+          {{range .BinlogStatsGroups}}
+          <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
+          {{end}}
         </div>
         <div class="tab-panel" data-panel="cmd">
-          {{range .CmdStatsGroups}}{{range $k, $v := .}}
-          <label class="checkbox-label"><input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}> <b>{{$k}}</b> <span class="text-muted">— {{$v}}</span></label>
-          {{end}}{{end}}
+          {{range .CmdStatsGroups}}
+          <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
+          {{end}}
         </div>
         <div class="tab-panel" data-panel="current">
-          {{range .CurrentStatsGroups}}{{range $k, $v := .}}
-          <label class="checkbox-label"><input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}> <b>{{$k}}</b> <span class="text-muted">— {{$v}}</span></label>
-          {{end}}{{end}}
+          {{range .CurrentStatsGroups}}
+          <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
+          {{end}}
         </div>
         <div class="tab-panel" data-panel="other">
-          {{range .OtherStatsGroups}}{{range $k, $v := .}}
-          <label class="checkbox-label"><input type="checkbox" name="{{$k}}" {{if contains $.Filter $k}}checked{{end}}> <b>{{$k}}</b> <span class="text-muted">— {{$v}}</span></label>
-          {{end}}{{end}}
+          {{range .OtherStatsGroups}}
+          <label class="checkbox-label"><input type="checkbox" name="{{.Name}}" {{if contains $.Filter .Name}}checked{{end}}> <b>{{.Name}}</b> <span class="text-muted">— {{.Desc}}</span></label>
+          {{end}}
         </div>
       </div>
       <div class="modal-footer">
